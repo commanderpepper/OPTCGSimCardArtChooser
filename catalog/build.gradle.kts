@@ -34,3 +34,17 @@ tasks.register<JavaExec>("generateSeedCatalog") {
     mainClass.set("commanderpepper.optcgsimcardartchooser.catalog.SeedCatalogKt")
     args(layout.projectDirectory.file("src/jvmMain/resources/seed-catalog.json").asFile.absolutePath)
 }
+
+// ./gradlew :catalog:convertSet -Pset=OP01
+// Downloads and converts one set's art into the app data folder (resumable; skips finished variants).
+tasks.register<JavaExec>("convertSet") {
+    group = "catalog"
+    description = "Converts one set's card art into sim-ready files. Usage: -Pset=OP01"
+    val main = kotlin.jvm().compilations.getByName("main")
+    classpath(main.output.allOutputs, main.runtimeDependencyFiles)
+    mainClass.set("commanderpepper.optcgsimcardartchooser.catalog.conversion.ConvertSetKt")
+    val setId = providers.gradleProperty("set")
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf(setId.orNull ?: throw GradleException("Pass the set, e.g. -Pset=OP01"))
+    })
+}
