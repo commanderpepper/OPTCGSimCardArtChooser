@@ -8,6 +8,7 @@ kotlin {
     jvm()
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":catalog"))
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
