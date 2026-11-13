@@ -13,21 +13,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
-import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderLocator
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderSetupScreen
-import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderStore
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
+import dev.zacsweers.metrox.viewmodel.metroViewModel
 
+/** Requires [dev.zacsweers.metrox.viewmodel.LocalMetroViewModelFactory] to be provided by the caller. */
 @Composable
 fun App(
-    locator: SimFolderLocator,
-    store: SimFolderStore,
     folderPicker: FolderPicker,
+    viewModel: SimFolderViewModel = metroViewModel(),
 ) {
-    val viewModel = viewModel { SimFolderViewModel(locator, store) }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     MaterialTheme {

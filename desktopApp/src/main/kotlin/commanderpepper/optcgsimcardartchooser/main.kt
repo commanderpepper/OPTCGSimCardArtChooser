@@ -1,17 +1,15 @@
 package commanderpepper.optcgsimcardartchooser
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import commanderpepper.optcgsimcardartchooser.simfolder.JvmSimFolderLocator
-import commanderpepper.optcgsimcardartchooser.simfolder.NativeFolderPicker
-import commanderpepper.optcgsimcardartchooser.simfolder.PreferencesSimFolderStore
+import dev.zacsweers.metro.createGraph
+import dev.zacsweers.metrox.viewmodel.LocalMetroViewModelFactory
 
 fun main() {
-    val locator = JvmSimFolderLocator.forCurrentHost()
-    val store = PreferencesSimFolderStore()
-    val picker = NativeFolderPicker()
+    val graph = createGraph<AppGraph>()
 
     application {
         Window(
@@ -19,7 +17,9 @@ fun main() {
             title = "OPTCGSim Card Art Chooser",
             state = rememberWindowState(width = 960.dp, height = 720.dp),
         ) {
-            App(locator = locator, store = store, folderPicker = picker)
+            CompositionLocalProvider(LocalMetroViewModelFactory provides graph.metroViewModelFactory) {
+                App(folderPicker = graph.folderPicker)
+            }
         }
     }
 }

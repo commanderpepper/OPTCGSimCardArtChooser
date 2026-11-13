@@ -1,6 +1,10 @@
 package commanderpepper.optcgsimcardartchooser.simfolder
 
 import androidx.lifecycle.ViewModel
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +23,9 @@ data class SimFolderState(
         get() = (check as? FolderCheck.Valid)?.writable == true
 }
 
+@Inject
+@ViewModelKey(SimFolderViewModel::class)
+@ContributesIntoMap(AppScope::class)
 class SimFolderViewModel(
     private val locator: SimFolderLocator,
     private val store: SimFolderStore,
