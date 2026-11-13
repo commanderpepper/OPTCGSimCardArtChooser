@@ -20,9 +20,28 @@ compose.desktop {
         mainClass = "commanderpepper.optcgsimcardartchooser.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "commanderpepper.optcgsimcardartchooser"
+            // jpackage can only build installers for the OS it runs on:
+            // run packageDistributionForCurrentOS on Windows for the .msi and on a Mac for the .dmg.
+            targetFormats(TargetFormat.Msi, TargetFormat.Dmg)
+            packageName = "OPTCGSimCardArtChooser"
             packageVersion = "1.0.0"
+            description = "Choose which card art OPTCGSim displays"
+            vendor = "commanderpepper"
+
+            // java.desktop (Swing/AWT pickers) is included by default; Preferences needs java.prefs.
+            modules("java.prefs")
+
+            windows {
+                menuGroup = "OPTCGSim Card Art Chooser"
+                perUserInstall = true
+                dirChooser = true
+                shortcut = true
+                // Must never change: lets newer MSIs upgrade an existing install.
+                upgradeUuid = "162323e9-f469-4308-a331-cb59ad8d2e14"
+            }
+            macOS {
+                bundleID = "commanderpepper.optcgsimcardartchooser"
+            }
         }
     }
 }
