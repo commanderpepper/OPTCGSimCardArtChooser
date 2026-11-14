@@ -27,6 +27,8 @@ fun SimFolderSetupScreen(
     onBrowse: () -> Unit,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Shown when there is a page to go back to (changing an already-verified folder). */
+    onCancel: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
@@ -67,8 +69,13 @@ fun SimFolderSetupScreen(
 
             CheckResult(state.check)
 
-            Button(onClick = onConfirm, enabled = state.canConfirm, modifier = Modifier.align(Alignment.End)) {
-                Text("Use this folder")
+            Row(modifier = Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onCancel != null) {
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+                Button(onClick = onConfirm, enabled = state.canConfirm) {
+                    Text("Use this folder")
+                }
             }
         }
     }

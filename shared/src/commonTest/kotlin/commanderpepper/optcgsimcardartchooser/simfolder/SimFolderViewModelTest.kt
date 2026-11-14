@@ -65,10 +65,25 @@ class SimFolderViewModelTest {
     }
 
     @Test
-    fun changeFolderReturnsToSetupWithCurrentPath() {
-        val vm = SimFolderViewModel(FakeLocator(mapOf("/sim" to true)), FakeStore("/sim"))
+    fun changeFolderPrefillsTheCurrentPathAndKeepsItConfirmedUntilReplaced() {
+        val store = FakeStore("/sim")
+        val vm = SimFolderViewModel(FakeLocator(mapOf("/sim" to true, "/other" to true)), store)
         vm.changeFolder()
-        assertNull(vm.state.value.confirmed)
+        assertEquals("/sim", vm.state.value.confirmed?.selectedPath, "cancelling keeps the old folder")
         assertEquals("/sim", vm.state.value.pathInput)
+
+        vm.onPathChanged("/other")
+        assertTrue(vm.confirm())
+        assertEquals("/other", vm.state.value.confirmed?.selectedPath)
+        assertEquals("/other", store.saved)
+    }
+
+    @Test
+    fun confirmReportsWhetherItSucceeded() {
+        val vm = SimFolderViewModel(FakeLocator(mapOf("/ro" to false)), FakeStore())
+        vm.onPathChanged("/missing")
+        assertFalse(vm.confirm())
+        vm.onPathChanged("/ro")
+        assertFalse(vm.confirm())
     }
 }

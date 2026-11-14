@@ -9,13 +9,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import commanderpepper.optcgsimcardartchooser.navigation.AppNavigation
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
-import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderSetupScreen
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
 import dev.zacsweers.metrox.viewmodel.metroViewModel
 
@@ -23,30 +21,18 @@ import dev.zacsweers.metrox.viewmodel.metroViewModel
 @Composable
 fun App(
     folderPicker: FolderPicker,
-    viewModel: SimFolderViewModel = metroViewModel(),
+    folderViewModel: SimFolderViewModel = metroViewModel(),
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            val confirmed = state.confirmed
-            if (confirmed == null) {
-                SimFolderSetupScreen(
-                    state = state,
-                    onPathChanged = viewModel::onPathChanged,
-                    onBrowse = { viewModel.onPicked(folderPicker.pick(state.pathInput.ifBlank { null })) },
-                    onConfirm = viewModel::confirm,
-                )
-            } else {
-                HomePlaceholder(confirmed, onChangeFolder = viewModel::changeFolder)
-            }
+            AppNavigation(folderViewModel = folderViewModel, folderPicker = folderPicker)
         }
     }
 }
 
 /** Temporary home screen until the card browser exists. */
 @Composable
-private fun HomePlaceholder(folder: FolderCheck.Valid, onChangeFolder: () -> Unit) {
+fun HomeScreen(folder: FolderCheck.Valid, onChangeFolder: () -> Unit) {
     Column(modifier = Modifier.padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("OPTCGSim folder verified", style = MaterialTheme.typography.headlineSmall)
         Text(folder.selectedPath)

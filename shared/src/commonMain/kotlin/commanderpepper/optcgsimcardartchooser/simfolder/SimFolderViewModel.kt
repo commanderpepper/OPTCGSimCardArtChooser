@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 data class SimFolderState(
-    /** Set once the user has verified a folder; null means the setup screen is shown. */
+    /** The folder the user verified; null until they confirm one. */
     val confirmed: FolderCheck.Valid? = null,
     val pathInput: String = "",
     val check: FolderCheck? = null,
@@ -54,13 +54,16 @@ class SimFolderViewModel(
         if (path != null) onPathChanged(path)
     }
 
-    fun confirm() {
-        val valid = _state.value.check as? FolderCheck.Valid ?: return
-        if (!valid.writable) return
+    /** Saves the checked folder. Returns true if it was valid and is now the confirmed folder. */
+    fun confirm(): Boolean {
+        val valid = _state.value.check as? FolderCheck.Valid ?: return false
+        if (!valid.writable) return false
         store.save(valid.selectedPath)
         _state.update { it.copy(confirmed = valid, notice = null) }
+        return true
     }
 
+    /** Re-opens setup pre-filled with the current folder. The confirmed folder stays until a new one is confirmed. */
     fun changeFolder() {
         startSetup(notice = null, keepInput = _state.value.confirmed?.selectedPath)
     }
@@ -70,6 +73,7 @@ class SimFolderViewModel(
         // Pre-fill the best guess, but never confirm it automatically.
         val initial = keepInput ?: suggestions.firstOrNull().orEmpty()
         _state.value = SimFolderState(
+            confirmed = _state.value.confirmed,
             pathInput = initial,
             check = if (initial.isBlank()) null else locator.check(initial),
             suggestions = suggestions,
