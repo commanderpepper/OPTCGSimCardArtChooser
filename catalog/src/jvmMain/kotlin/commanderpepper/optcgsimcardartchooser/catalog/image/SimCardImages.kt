@@ -41,6 +41,10 @@ object SimCardImages {
         )
     }
 
+    /** Just the `<ID>_small.jpg` thumbnail, e.g. for a card whose sim folder lacks one. */
+    fun renderSmall(source: ByteArray): ByteArray =
+        writeJpeg(resizeToCover(decode(source), SMALL_WIDTH, SMALL_HEIGHT), dpi = null)
+
     fun decode(bytes: ByteArray): BufferedImage =
         ImageIO.read(bytes.inputStream()) ?: throw IllegalArgumentException("Unsupported or corrupt image data")
 
