@@ -111,6 +111,43 @@ class FileCardArt(
 
     override suspend fun appliedVariants(): Map<String, String> = mutex.withLock { withContext(Dispatchers.IO) { readSelections() } }
 
+    override suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome = mutex.withLock {
+        val result = converter.convertVariant(card, variant)
+        if (result.status == VariantResult.Status.Failed) {
+            error("the art couldn't be downloaded or converted (${result.message})")
+        }
+        val (convertedFull, convertedSmall) = converter.convertedFiles(card.setId, variant.id)
+        val sim = simFiles(cardsPath, card)
+        val backup = backupFiles(card)
+        withContext(Dispatchers.IO) {
+            if (sameBytes(sim.jpg, convertedFull) && sameBytes(sim.small, convertedSmall)) {
+                return@withContext ReapplyOutcome.AlreadyApplied
+            }
+            sim.jpg.parent.createDirectories()
+            backup.jpg.parent.createDirectories()
+            // Whatever the sim put in place of our art is its current original: keep that as the backup,
+            // so restoring later doesn't bring back art from before the update.
+            for ((simFile, backupFile, ours) in listOf(
+                Triple(sim.jpg, backup.jpg, convertedFull),
+                Triple(sim.small, backup.small, convertedSmall),
+            )) {
+                if (simFile.isRegularFile() && !sameBytes(simFile, ours)) {
+                    Files.copy(simFile, backupFile, StandardCopyOption.REPLACE_EXISTING)
+                }
+            }
+            // The stock .png is never ours; refresh its backup if the update changed it.
+            if (sim.png.isRegularFile() && !sameBytes(sim.png, backup.png)) {
+                Files.copy(sim.png, backup.png, StandardCopyOption.REPLACE_EXISTING)
+            }
+            Files.copy(convertedFull, sim.jpg, StandardCopyOption.REPLACE_EXISTING)
+            Files.copy(convertedSmall, sim.small, StandardCopyOption.REPLACE_EXISTING)
+            ReapplyOutcome.Reapplied
+        }
+    }
+
+    private fun sameBytes(a: Path, b: Path): Boolean =
+        a.isRegularFile() && b.isRegularFile() && Files.mismatch(a, b) == -1L
+
     /** A card's three possible image files in one folder. */
     private class CardFiles(dir: Path, cardId: String) {
         val png: Path = dir.resolve("$cardId.png")

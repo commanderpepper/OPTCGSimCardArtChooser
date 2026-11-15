@@ -89,6 +89,7 @@ class CardBrowserViewModelTest {
         override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
         override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = Unit
         override suspend fun restoreOriginal(cardsPath: String, card: Card) = Unit
+        override suspend fun reapply(cardsPath: String, card: Card, variant: Variant) = ReapplyOutcome.AlreadyApplied
     }
 
     private fun browser(

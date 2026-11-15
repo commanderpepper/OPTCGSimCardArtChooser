@@ -27,4 +27,18 @@ interface CardArt {
 
     /** Every card whose art was changed, as card ID → applied variant ID. */
     suspend fun appliedVariants(): Map<String, String>
+
+    /**
+     * Puts [variant]'s art back after something (typically a sim update) replaced it. Files the
+     * sim replaced become the new backups, since they're its current originals.
+     * Throws with a readable message if the art can't be prepared or copied.
+     */
+    suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome
+}
+
+enum class ReapplyOutcome {
+    /** The sim had replaced the art; it's been put back. */
+    Reapplied,
+    /** The sim still had the app's art; nothing was changed. */
+    AlreadyApplied,
 }

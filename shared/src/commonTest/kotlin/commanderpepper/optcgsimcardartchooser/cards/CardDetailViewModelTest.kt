@@ -77,6 +77,8 @@ class CardDetailViewModelTest {
         override suspend fun appliedVariant(cardId: String): String? = applied
 
         override suspend fun appliedVariants(): Map<String, String> = applied?.let { mapOf("EB01-006" to it) }.orEmpty()
+
+        override suspend fun reapply(cardsPath: String, card: Card, variant: Variant) = ReapplyOutcome.AlreadyApplied
     }
 
     private class FakeThumbnails : CardThumbnails {

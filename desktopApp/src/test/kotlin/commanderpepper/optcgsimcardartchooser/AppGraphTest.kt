@@ -3,6 +3,7 @@ package commanderpepper.optcgsimcardartchooser
 import androidx.lifecycle.viewmodel.CreationExtras
 import commanderpepper.optcgsimcardartchooser.cards.CardBrowserViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailViewModel
+import commanderpepper.optcgsimcardartchooser.home.HomeViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.NativeFolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
 import dev.zacsweers.metro.createGraph
@@ -29,6 +30,11 @@ class AppGraphTest {
     fun cardBrowserViewModelIsInTheFactory() {
         val vm = graph.metroViewModelFactory.create(CardBrowserViewModel::class, CreationExtras.Empty)
         assertIs<CardBrowserViewModel>(vm)
+    }
+
+    @Test
+    fun homeViewModelIsInTheFactory() {
+        assertIs<HomeViewModel>(graph.metroViewModelFactory.create(HomeViewModel::class, CreationExtras.Empty))
     }
 
     @Test

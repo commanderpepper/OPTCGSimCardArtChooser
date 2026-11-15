@@ -11,7 +11,8 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import commanderpepper.optcgsimcardartchooser.HomeScreen
+import commanderpepper.optcgsimcardartchooser.home.HomeScreen
+import commanderpepper.optcgsimcardartchooser.home.HomeViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CardBrowserScreen
 import commanderpepper.optcgsimcardartchooser.cards.CardBrowserViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailScreen
@@ -57,13 +58,20 @@ fun AppNavigation(
             entry<Pages.Home> {
                 val confirmed = folderState.confirmed
                 if (confirmed != null) {
+                    val homeViewModel: HomeViewModel = metroViewModel()
+                    val homeState by homeViewModel.state.collectAsStateWithLifecycle()
+                    // Runs each time Home is shown, so the modified count is current.
+                    LaunchedEffect(homeViewModel) { homeViewModel.refresh() }
                     HomeScreen(
                         folder = confirmed,
+                        state = homeState,
+                        onBrowseCards = { backStack.add(Pages.CardBrowser) },
                         onChangeFolder = {
                             folderViewModel.changeFolder()
                             backStack.add(Pages.SimFolderSetup)
                         },
-                        onBrowseCards = { backStack.add(Pages.CardBrowser) },
+                        onReapply = homeViewModel::reapplyAll,
+                        onDismissMessage = homeViewModel::dismissMessage,
                     )
                 }
             }

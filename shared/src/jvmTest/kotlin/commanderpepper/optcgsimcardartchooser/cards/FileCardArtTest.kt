@@ -120,6 +120,46 @@ class FileCardArtTest {
     }
 
     @Test
+    fun reapplyLeavesUntouchedCardsAlone() = runTest {
+        art.apply(cards.toString(), jpgCard, jpgCard.variants[0])
+        assertEquals(ReapplyOutcome.AlreadyApplied, art.reapply(cards.toString(), jpgCard, jpgCard.variants[0]))
+        assertContentEquals(stockJpg, backup(jpgCard).jpg.readBytes())
+    }
+
+    @Test
+    fun reapplyAfterASimUpdatePutsOurArtBackAndKeepsTheUpdatedArtAsTheOriginal() = runTest {
+        art.apply(cards.toString(), jpgCard, jpgCard.variants[0])
+        // The sim update overwrites both files with new stock art.
+        val updatedJpg = byteArrayOf(7, 7, 7)
+        val updatedSmall = byteArrayOf(8, 8, 8)
+        sim(jpgCard).jpg.writeBytes(updatedJpg)
+        sim(jpgCard).small.writeBytes(updatedSmall)
+
+        assertEquals(ReapplyOutcome.Reapplied, art.reapply(cards.toString(), jpgCard, jpgCard.variants[0]))
+        assertContentEquals(converted(jpgCard, 0).first.readBytes(), sim(jpgCard).jpg.readBytes())
+        assertContentEquals(converted(jpgCard, 0).second.readBytes(), sim(jpgCard).small.readBytes())
+        assertContentEquals(updatedJpg, backup(jpgCard).jpg.readBytes(), "backup is now the updated stock art")
+        assertContentEquals(updatedSmall, backup(jpgCard).small.readBytes())
+
+        art.restoreOriginal(cards.toString(), jpgCard)
+        assertContentEquals(updatedJpg, sim(jpgCard).jpg.readBytes(), "restore brings back the updated art, not the old one")
+    }
+
+    @Test
+    fun reapplyForAPngCardRefreshesOnlyWhatTheUpdateChanged() = runTest {
+        art.apply(cards.toString(), pngCard, pngCard.variants[0])
+        // The update ships a new .png and _small.jpg but leaves our .jpg in place.
+        val updatedPng = byteArrayOf(5, 5, 5)
+        sim(pngCard).png.writeBytes(updatedPng)
+        sim(pngCard).small.writeBytes(byteArrayOf(6, 6, 6))
+
+        assertEquals(ReapplyOutcome.Reapplied, art.reapply(cards.toString(), pngCard, pngCard.variants[0]))
+        assertContentEquals(converted(pngCard, 0).second.readBytes(), sim(pngCard).small.readBytes())
+        assertContentEquals(updatedPng, backup(pngCard).png.readBytes())
+        assertFalse(backup(pngCard).jpg.exists(), "our own .jpg is never backed up")
+    }
+
+    @Test
     fun appliedVariantsListsEveryChangedCard() = runTest {
         art.apply(cards.toString(), pngCard, pngCard.variants[0])
         art.apply(cards.toString(), jpgCard, jpgCard.variants[1])
