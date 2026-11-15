@@ -19,9 +19,13 @@ sealed interface Pages : NavKey {
     @Serializable
     data object SimFolderSetup : Pages
 
-    /** Main screen once a folder is verified (will become the card browser). */
+    /** Main screen once a folder is verified. */
     @Serializable
     data object Home : Pages
+
+    /** Search and filter the card catalog. */
+    @Serializable
+    data object CardBrowser : Pages
 
     companion object {
         /**
@@ -33,6 +37,7 @@ sealed interface Pages : NavKey {
                 polymorphic(NavKey::class) {
                     subclass(SimFolderSetup::class, SimFolderSetup.serializer())
                     subclass(Home::class, Home.serializer())
+                    subclass(CardBrowser::class, CardBrowser.serializer())
                 }
             }
         }

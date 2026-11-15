@@ -10,6 +10,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import commanderpepper.optcgsimcardartchooser.HomeScreen
+import commanderpepper.optcgsimcardartchooser.cards.CardBrowserScreen
+import commanderpepper.optcgsimcardartchooser.cards.CardBrowserViewModel
+import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderSetupScreen
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
@@ -54,8 +57,25 @@ fun AppNavigation(
                             folderViewModel.changeFolder()
                             backStack.add(Pages.SimFolderSetup)
                         },
+                        onBrowseCards = { backStack.add(Pages.CardBrowser) },
                     )
                 }
+            }
+            entry<Pages.CardBrowser> {
+                // Scoped to this entry: created when the page opens, cleared when it's popped.
+                val viewModel: CardBrowserViewModel = metroViewModel()
+                val state by viewModel.state.collectAsStateWithLifecycle()
+                CardBrowserScreen(
+                    state = state,
+                    onQueryChanged = viewModel::onQueryChanged,
+                    onToggleColor = viewModel::toggleColor,
+                    onToggleCategory = viewModel::toggleCategory,
+                    onToggleSet = viewModel::toggleSet,
+                    onClearFilters = viewModel::clearFilters,
+                    onRetry = viewModel::retry,
+                    onBack = { backStack.removeLastOrNull() },
+                    loadThumbnail = viewModel::thumbnail,
+                )
             }
         },
     )

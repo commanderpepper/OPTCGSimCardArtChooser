@@ -10,7 +10,8 @@ kotlin {
     jvm()
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":catalog"))
+            // api: shared's public types (e.g. CatalogRepository) expose catalog models.
+            api(project(":catalog"))
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
@@ -25,6 +26,11 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+        jvmTest.dependencies {
+            // Skia's native library, needed to decode and create images in tests.
+            implementation(compose.desktop.currentOs)
         }
     }
 }
