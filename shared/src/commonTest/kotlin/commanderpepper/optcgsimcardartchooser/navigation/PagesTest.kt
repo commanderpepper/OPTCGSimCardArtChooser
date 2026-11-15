@@ -27,7 +27,7 @@ class PagesTest {
         // Fails if a new page is added to Pages but not to savedStateConfiguration.
         val json = Json { serializersModule = Pages.savedStateConfiguration.serializersModule }
         val serializer = PolymorphicSerializer(NavKey::class)
-        val pages: List<Pages> = listOf(Pages.SimFolderSetup, Pages.Home, Pages.CardBrowser)
+        val pages: List<Pages> = listOf(Pages.SimFolderSetup, Pages.Home, Pages.CardBrowser, Pages.CardDetail("OP01-001"))
         pages.forEach { page ->
             assertEquals(page, json.decodeFromString(serializer, json.encodeToString(serializer, page)))
         }

@@ -10,4 +10,7 @@ interface CardThumbnails {
      * or null when no image exists or it can't be decoded.
      */
     suspend fun load(cardsPath: String, card: Card): ImageBitmap?
+
+    /** Forgets any cached thumbnail for [cardId], e.g. after its art was changed. */
+    fun invalidate(cardId: String)
 }

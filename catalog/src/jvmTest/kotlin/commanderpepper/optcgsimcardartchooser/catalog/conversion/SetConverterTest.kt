@@ -95,11 +95,11 @@ class SetConverterTest {
 
         val out = dirs.convertedSet("OP01")
         assertEquals(
-            setOf("OP01-001.png", "OP01-001_small.jpg", "OP01-001_p1.png", "OP01-001_p1_small.jpg"),
+            setOf("OP01-001.jpg", "OP01-001_small.jpg", "OP01-001_p1.jpg", "OP01-001_p1_small.jpg"),
             out.listDirectoryEntries().map { it.name }.toSet(),
         )
-        val png = ImageIO.read(out.resolve("OP01-001_p1.png").toFile())
-        assertEquals(480 to 671, png.width to png.height)
+        val full = ImageIO.read(out.resolve("OP01-001_p1.jpg").toFile())
+        assertEquals(480 to 671, full.width to full.height)
     }
 
     @Test
@@ -128,7 +128,7 @@ class SetConverterTest {
     @Test
     fun conversionReusesCachedDownloads() = runTest {
         run()
-        dirs.convertedSet("OP01").resolve("OP01-001.png").toFile().delete()
+        dirs.convertedSet("OP01").resolve("OP01-001.jpg").toFile().delete()
         requested.clear()
         val again = run()
         assertEquals(VariantResult.Status.Converted, again.results.first { it.variantId == "OP01-001" }.status)

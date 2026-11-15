@@ -8,12 +8,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -21,6 +25,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,8 +44,8 @@ import commanderpepper.optcgsimcardartchooser.catalog.model.Category
 
 /**
  * Card browser: search, Color / Card type / Set dropdown filters, and a grid of card tiles with
- * thumbnails. Still to come: more filter dropdowns (traits, alt art — already supported by the
- * ViewModel) and opening a card to choose its art.
+ * thumbnails. Clicking a card opens its art options. Still to come: more filter dropdowns (traits,
+ * alt art — already supported by the ViewModel).
  */
 @Composable
 fun CardBrowserScreen(
@@ -49,10 +54,13 @@ fun CardBrowserScreen(
     onToggleColor: (CardColor) -> Unit,
     onToggleCategory: (Category) -> Unit,
     onToggleSet: (String) -> Unit,
+    onToggleArtStatus: (ArtStatus) -> Unit,
+    deckActions: DeckListActions,
     onClearFilters: () -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit,
     loadThumbnail: suspend (Card) -> ImageBitmap?,
+    onCardSelected: (cardId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -68,7 +76,8 @@ fun CardBrowserScreen(
                 Button(onClick = onRetry) { Text("Retry") }
             }
             else -> {
-                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onClearFilters)
+                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleArtStatus, deckActions, onClearFilters)
+                state.deckMessage?.let { DeckMessageBanner(it, deckActions.onDismissMessage) }
                 Text(
                     "${state.cards.size} of ${state.totalCards} cards",
                     style = MaterialTheme.typography.bodySmall,
@@ -82,7 +91,9 @@ fun CardBrowserScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        items(state.cards, key = { it.id }) { card -> CardTile(card, loadThumbnail) }
+                        items(state.cards, key = { it.id }) { card ->
+                            CardTile(card, isModified = card.id in state.modifiedCardIds, loadThumbnail, onClick = { onCardSelected(card.id) })
+                        }
                     }
                 }
             }
@@ -97,6 +108,8 @@ private fun Filters(
     onToggleColor: (CardColor) -> Unit,
     onToggleCategory: (Category) -> Unit,
     onToggleSet: (String) -> Unit,
+    onToggleArtStatus: (ArtStatus) -> Unit,
+    deckActions: DeckListActions,
     onClearFilters: () -> Unit,
 ) {
     val filter = state.filter
@@ -134,8 +147,93 @@ private fun Filters(
             summaryLabel = { it },
             onToggle = onToggleSet,
         )
+        MultiSelectDropdown(
+            label = "Art",
+            sections = listOf(DropdownSection(null, ArtStatus.entries)),
+            selected = state.artStatuses,
+            optionLabel = { it.label },
+            onToggle = onToggleArtStatus,
+        )
+        DeckListButton(state, deckActions)
         if (state.hasActiveFilter) {
             TextButton(onClick = onClearFilters) { Text("Clear filters") }
+        }
+    }
+}
+
+/** Callbacks for the deck list filter. */
+class DeckListActions(
+    val onApply: (String) -> Unit,
+    val onClear: () -> Unit,
+    val onDismissMessage: () -> Unit,
+)
+
+/** "Deck list…" when inactive; "Deck: 13 cards" plus a clear button when a list is applied. */
+@Composable
+private fun DeckListButton(state: CardBrowserState, actions: DeckListActions) {
+    var editing by remember { mutableStateOf(false) }
+    val deck = state.deckCardIds
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { editing = true }) {
+            Text(if (deck == null) "Deck list…" else "Deck: ${deck.size} card${if (deck.size == 1) "" else "s"}")
+        }
+        if (deck != null) {
+            TextButton(onClick = actions.onClear) { Text("✕") }
+        }
+    }
+    if (editing) {
+        DeckListDialog(
+            initialText = state.deckText,
+            onApply = { text ->
+                actions.onApply(text)
+                editing = false
+            },
+            onDismiss = { editing = false },
+        )
+    }
+}
+
+@Composable
+private fun DeckListDialog(initialText: String, onApply: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(initialText) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filter by deck list") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Paste a deck list, one card per line. Quantities are ignored.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("1xOP09-061\n4xEB05-033\n4xOP09-069") },
+                    minLines = 10,
+                    maxLines = 16,
+                    modifier = Modifier.fillMaxWidth().widthIn(min = 360.dp),
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { onApply(text) }, enabled = text.isNotBlank()) { Text("Show cards") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun DeckMessageBanner(message: String, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDismiss) { Text("OK") }
         }
     }
 }
@@ -198,12 +296,24 @@ private fun <T> MultiSelectDropdown(
 private const val MAX_SUMMARY_ITEMS = 3
 
 @Composable
-private fun CardTile(card: Card, loadThumbnail: suspend (Card) -> ImageBitmap?) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun CardTile(card: Card, isModified: Boolean, loadThumbnail: suspend (Card) -> ImageBitmap?, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CardThumbnailImage(card = card, load = loadThumbnail)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(card.id, style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(card.id, style = MaterialTheme.typography.labelMedium)
+                    if (isModified) {
+                        Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
+                            Text(
+                                "Modified",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
                 Text(card.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${card.category.name} · ${card.colors.joinToString("/") { it.name }}",

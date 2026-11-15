@@ -9,6 +9,7 @@ import commanderpepper.optcgsimcardartchooser.catalog.model.Category
 import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
 import commanderpepper.optcgsimcardartchooser.catalog.model.VariantKind
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
+import commanderpepper.optcgsimcardartchooser.simfolder.SimCardsFolder
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderLocator
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderStore
 import kotlinx.coroutines.CompletableDeferred
@@ -63,6 +64,8 @@ class CardBrowserViewModelTest {
             requests += cardsPath to card.id
             return if (card.id in available) ImageBitmap(120, 167) else null
         }
+
+        override fun invalidate(cardId: String) = Unit
     }
 
     private class FakeStore(private val saved: String?) : SimFolderStore {
@@ -78,11 +81,107 @@ class CardBrowserViewModelTest {
             if (path == "/sim") FolderCheck.Valid(path, "/sim/Cards", setCount = 2, writable = true) else FolderCheck.Invalid(path, "no")
     }
 
+    /** Only [appliedVariants] matters to the browser; [modified] can change between reads. */
+    private class FakeArt(var modified: Map<String, String> = emptyMap()) : CardArt {
+        override suspend fun appliedVariants() = modified
+        override suspend fun appliedVariant(cardId: String) = modified[cardId]
+        override suspend fun variantPreview(card: Card, variant: Variant): ImageBitmap? = null
+        override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
+        override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = Unit
+        override suspend fun restoreOriginal(cardsPath: String, card: Card) = Unit
+    }
+
     private fun browser(
         repository: CatalogRepository,
         thumbnails: CardThumbnails = FakeThumbnails(),
         savedFolder: String? = "/sim",
-    ) = CardBrowserViewModel(repository, thumbnails, FakeStore(savedFolder), FakeLocator)
+        art: CardArt = FakeArt(),
+    ) = CardBrowserViewModel(repository, thumbnails, art, SimCardsFolder(FakeStore(savedFolder), FakeLocator))
+
+    @Test
+    fun artFilterShowsModifiedOrOriginalCards() {
+        val vm = browser(FakeRepository { catalog }, art = FakeArt(mapOf("OP01-001" to "OP01-001_p1")))
+        assertEquals(setOf("OP01-001"), vm.state.value.modifiedCardIds)
+
+        vm.toggleArtStatus(ArtStatus.Modified)
+        assertEquals(listOf("OP01-001"), ids(vm))
+        assertTrue(vm.state.value.hasActiveFilter)
+
+        vm.toggleArtStatus(ArtStatus.Original) // both ticked = everything
+        assertEquals(3, ids(vm).size)
+
+        vm.toggleArtStatus(ArtStatus.Modified)
+        assertEquals(listOf("OP01-061", "EB01-006"), ids(vm))
+
+        vm.toggleColor(CardColor.Red) // combines with the other filters
+        assertEquals(listOf("EB01-006"), ids(vm))
+
+        vm.clearFilters()
+        assertEquals(3, ids(vm).size)
+        assertFalse(vm.state.value.hasActiveFilter)
+    }
+
+    @Test
+    fun deckListShowsItsCardsInDeckOrderAndReportsUnknownOnes() {
+        val vm = browser(FakeRepository { catalog })
+        vm.applyDeckList("4xEB01-006\n1xOP01-001\n3xOP18-077")
+
+        assertEquals(listOf("EB01-006", "OP01-001"), ids(vm), "deck order, not catalog order")
+        assertEquals(listOf("EB01-006", "OP01-001"), vm.state.value.deckCardIds)
+        assertEquals("1 card wasn't found: OP18-077", vm.state.value.deckMessage)
+        assertTrue(vm.state.value.hasActiveFilter)
+
+        vm.dismissDeckMessage()
+        assertNull(vm.state.value.deckMessage)
+        assertEquals(2, ids(vm).size, "dismissing the message keeps the deck filter")
+    }
+
+    @Test
+    fun deckListCombinesWithOtherFiltersAndCanBeCleared() {
+        val vm = browser(FakeRepository { catalog })
+        vm.applyDeckList("OP01-001\nOP01-061\nEB01-006")
+        vm.toggleCategory(Category.Leader)
+        assertEquals(listOf("OP01-001", "OP01-061"), ids(vm))
+
+        vm.clearDeckList()
+        assertNull(vm.state.value.deckCardIds)
+        assertEquals(listOf("OP01-001", "OP01-061"), ids(vm), "other filters stay")
+
+        vm.applyDeckList("EB01-006")
+        vm.clearFilters()
+        assertNull(vm.state.value.deckCardIds, "clear filters also clears the deck list")
+        assertEquals(3, ids(vm).size)
+    }
+
+    @Test
+    fun deckListWithNothingRecognisableKeepsTheCurrentView() {
+        val vm = browser(FakeRepository { catalog })
+        vm.applyDeckList("just some text")
+        assertNull(vm.state.value.deckCardIds)
+        assertEquals("No card numbers were found in that list.", vm.state.value.deckMessage)
+        assertEquals(3, ids(vm).size)
+
+        vm.applyDeckList("4xOP18-077\n4xOP18-078")
+        assertNull(vm.state.value.deckCardIds)
+        assertEquals("None of the 2 cards in that list are in the catalog: OP18-077, OP18-078", vm.state.value.deckMessage)
+        assertEquals("4xOP18-077\n4xOP18-078", vm.state.value.deckText, "kept to pre-fill the dialog for fixing")
+    }
+
+    @Test
+    fun refreshPicksUpArtChangedOnTheCardPage() {
+        val art = FakeArt()
+        val vm = browser(FakeRepository { catalog }, art = art)
+        vm.toggleArtStatus(ArtStatus.Modified)
+        assertTrue(ids(vm).isEmpty())
+
+        art.modified = mapOf("EB01-006" to "EB01-006_p2") // changed while the browser waited underneath
+        vm.refreshModified()
+        assertEquals(listOf("EB01-006"), ids(vm))
+
+        art.modified = emptyMap() // restored to the original
+        vm.refreshModified()
+        assertTrue(ids(vm).isEmpty())
+    }
 
     private fun ids(vm: CardBrowserViewModel) = vm.state.value.cards.map { it.id }
 

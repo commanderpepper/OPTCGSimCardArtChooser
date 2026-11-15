@@ -1,5 +1,8 @@
 package commanderpepper.optcgsimcardartchooser.di
 
+import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppDirectories
+import commanderpepper.optcgsimcardartchooser.catalog.conversion.SetConverter
+import commanderpepper.optcgsimcardartchooser.catalog.createHttpClient
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.JvmSimFolderLocator
 import commanderpepper.optcgsimcardartchooser.simfolder.NativeFolderPicker
@@ -10,6 +13,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.ktor.client.HttpClient
 
 /** Desktop (Windows/macOS) implementations of the shared interfaces. */
 @ContributesTo(AppScope::class)
@@ -25,4 +29,16 @@ interface DesktopBindings {
     @Provides
     @SingleIn(AppScope::class)
     fun provideFolderPicker(): FolderPicker = NativeFolderPicker()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideAppDirectories(): AppDirectories = AppDirectories.forCurrentHost()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideHttpClient(): HttpClient = createHttpClient()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideSetConverter(http: HttpClient, dirs: AppDirectories): SetConverter = SetConverter(http, dirs)
 }

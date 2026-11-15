@@ -27,6 +27,10 @@ sealed interface Pages : NavKey {
     @Serializable
     data object CardBrowser : Pages
 
+    /** One card's art options; choosing one copies it into the sim. */
+    @Serializable
+    data class CardDetail(val cardId: String) : Pages
+
     companion object {
         /**
          * Non-Android targets have no reflection for saving the back stack, so every page must be
@@ -38,6 +42,7 @@ sealed interface Pages : NavKey {
                     subclass(SimFolderSetup::class, SimFolderSetup.serializer())
                     subclass(Home::class, Home.serializer())
                     subclass(CardBrowser::class, CardBrowser.serializer())
+                    subclass(CardDetail::class, CardDetail.serializer())
                 }
             }
         }

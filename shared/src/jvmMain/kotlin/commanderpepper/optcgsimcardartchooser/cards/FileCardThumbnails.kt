@@ -28,7 +28,7 @@ import kotlin.io.path.readBytes
 class FileCardThumbnails(private val convertedRoot: Path) : CardThumbnails {
 
     @Inject
-    constructor() : this(AppDirectories.forCurrentHost().converted)
+    constructor(dirs: AppDirectories) : this(dirs.converted)
 
     private val cache = object : LinkedHashMap<String, CachedThumbnail>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedThumbnail>) = size > MAX_CACHED
@@ -43,6 +43,10 @@ class FileCardThumbnails(private val convertedRoot: Path) : CardThumbnails {
         }
         synchronized(cache) { cache[key] = CachedThumbnail(image) }
         return image
+    }
+
+    override fun invalidate(cardId: String) {
+        synchronized(cache) { cache.keys.removeAll { it.endsWith("|$cardId") } }
     }
 
     private fun candidates(cardsPath: String, card: Card): List<Path> = listOf(

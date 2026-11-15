@@ -31,6 +31,7 @@ kotlin {
         jvmTest.dependencies {
             // Skia's native library, needed to decode and create images in tests.
             implementation(compose.desktop.currentOs)
+            implementation(libs.ktor.client.mock)
         }
     }
 }

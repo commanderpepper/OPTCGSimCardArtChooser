@@ -8,23 +8,21 @@ import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageTypeSpecifier
 import javax.imageio.ImageWriteParam
-import javax.imageio.ImageWriter
 import javax.imageio.metadata.IIOMetadataNode
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** The two files OPTCGSim reads per card: `<ID>.png` and `<ID>_small.jpg`. */
-class SimImageSet(val fullPng: ByteArray, val smallJpg: ByteArray)
+/** The two files OPTCGSim reads per card: `<ID>.jpg` and `<ID>_small.jpg`. */
+class SimImageSet(val fullJpg: ByteArray, val smallJpg: ByteArray)
 
 /**
- * Converts any card image into the formats of the sim's stock files:
- * - `<ID>.png`: 480x671, 8-bit palette (256 colors), 300 DPI.
- * - `<ID>_small.jpg`: 120x167, 24-bit RGB, JFIF with no physical DPI (units 0, ratio 1:1),
- *   which Windows reports as 96 DPI.
+ * Converts any card image into the formats of the sim's current stock files:
+ * - `<ID>.jpg`: 480x671, 24-bit baseline JPEG, 300 DPI (like every set since OP09 and all patches);
+ * - `<ID>_small.jpg`: 120x167, 24-bit baseline JPEG, JFIF with no physical DPI (units 0, ratio 1:1).
  *
- * Sources with a slightly different aspect ratio are scaled to cover the target and
- * center-cropped rather than stretched. The sim itself is lenient (stock files include odd
- * sizes and even JPEG data named .png), so these specs are for consistency, not compatibility.
+ * JPEG rather than PNG because when a card has both `<ID>.jpg` and `<ID>.png`, the sim shows the
+ * JPEG (tested by the user), so a JPEG reliably replaces either stock format.
+ * Sources with a slightly different aspect ratio are scaled to cover and center-cropped.
  */
 object SimCardImages {
     const val FULL_WIDTH = 480
@@ -33,16 +31,13 @@ object SimCardImages {
     const val SMALL_WIDTH = 120
     const val SMALL_HEIGHT = 167
     private const val JPEG_QUALITY = 0.9f
-    private const val PNG_FORMAT = "javax_imageio_png_1.0"
     private const val JPEG_FORMAT = "javax_imageio_jpeg_image_1.0"
 
-    fun render(source: ByteArray, dither: Boolean = true): SimImageSet {
+    fun render(source: ByteArray): SimImageSet {
         val image = decode(source)
-        val full = resizeToCover(image, FULL_WIDTH, FULL_HEIGHT)
-        val small = resizeToCover(image, SMALL_WIDTH, SMALL_HEIGHT)
         return SimImageSet(
-            fullPng = writePalettePng(PaletteQuantizer.quantize(full, 256, dither), FULL_DPI),
-            smallJpg = writeJpeg(small),
+            fullJpg = writeJpeg(resizeToCover(image, FULL_WIDTH, FULL_HEIGHT), dpi = FULL_DPI),
+            smallJpg = writeJpeg(resizeToCover(image, SMALL_WIDTH, SMALL_HEIGHT), dpi = null),
         )
     }
 
@@ -79,48 +74,29 @@ object SimCardImages {
         return target
     }
 
-    /** Writes an indexed image as an 8-bit palette PNG with a pHYs chunk for [dpi]. */
-    private fun writePalettePng(indexed: BufferedImage, dpi: Int): ByteArray = write("png") { writer ->
-        val param = writer.defaultWriteParam
-        val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(indexed), param)
-        // Native PNG tree with an exact integer: the generic format's mm-per-pixel route drifts.
-        val pixelsPerMeter = (dpi / 0.0254).roundToInt().toString()
-        val root = IIOMetadataNode(PNG_FORMAT).apply {
-            appendChild(IIOMetadataNode("pHYs").apply {
-                setAttribute("pixelsPerUnitXAxis", pixelsPerMeter)
-                setAttribute("pixelsPerUnitYAxis", pixelsPerMeter)
-                setAttribute("unitSpecifier", "meter")
-            })
-        }
-        metadata.mergeTree(PNG_FORMAT, root)
-        IIOImage(indexed, null, metadata) to param
-    }
-
-    /** Writes a 24-bit baseline JPEG whose JFIF header matches the stock files (units 0, 1:1). */
-    private fun writeJpeg(rgb: BufferedImage): ByteArray = write("jpeg") { writer ->
-        val param = writer.defaultWriteParam.apply {
-            compressionMode = ImageWriteParam.MODE_EXPLICIT
-            compressionQuality = JPEG_QUALITY
-        }
-        val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(rgb), param)
-        val tree = metadata.getAsTree(JPEG_FORMAT) as IIOMetadataNode
-        (tree.getElementsByTagName("app0JFIF").item(0) as? IIOMetadataNode)?.apply {
-            setAttribute("resUnits", "0")
-            setAttribute("Xdensity", "1")
-            setAttribute("Ydensity", "1")
-        }
-        metadata.setFromTree(JPEG_FORMAT, tree)
-        IIOImage(rgb, null, metadata) to param
-    }
-
-    private fun write(format: String, prepare: (ImageWriter) -> Pair<IIOImage, ImageWriteParam>): ByteArray {
-        val writer = ImageIO.getImageWritersByFormatName(format).next()
+    /**
+     * Writes a 24-bit baseline JPEG. With [dpi], the JFIF header records it in dots per inch;
+     * without, it carries no physical size (units 0, ratio 1:1), as in the stock thumbnails.
+     */
+    private fun writeJpeg(rgb: BufferedImage, dpi: Int?): ByteArray {
+        val writer = ImageIO.getImageWritersByFormatName("jpeg").next()
         val out = ByteArrayOutputStream()
         try {
             ImageIO.createImageOutputStream(out).use { stream ->
                 writer.output = stream
-                val (image, param) = prepare(writer)
-                writer.write(null, image, param)
+                val param = writer.defaultWriteParam.apply {
+                    compressionMode = ImageWriteParam.MODE_EXPLICIT
+                    compressionQuality = JPEG_QUALITY
+                }
+                val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(rgb), param)
+                val tree = metadata.getAsTree(JPEG_FORMAT) as IIOMetadataNode
+                (tree.getElementsByTagName("app0JFIF").item(0) as? IIOMetadataNode)?.apply {
+                    setAttribute("resUnits", if (dpi != null) "1" else "0")
+                    setAttribute("Xdensity", (dpi ?: 1).toString())
+                    setAttribute("Ydensity", (dpi ?: 1).toString())
+                }
+                metadata.setFromTree(JPEG_FORMAT, tree)
+                writer.write(null, IIOImage(rgb, null, metadata), param)
             }
         } finally {
             writer.dispose()

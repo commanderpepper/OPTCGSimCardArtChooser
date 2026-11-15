@@ -4,7 +4,6 @@ import commanderpepper.optcgsimcardartchooser.catalog.image.SimCardImages
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
 import commanderpepper.optcgsimcardartchooser.catalog.model.Catalog
 import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
-import commanderpepper.optcgsimcardartchooser.catalog.model.VariantKind
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
@@ -22,17 +21,6 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readBytes
 
-/** Which variants get converted. Per the user: reprints and Jolly Roger / Textured foils aren't needed. */
-object ConversionScope {
-    private val EXCLUDED_TAGS = setOf("jolly roger foil", "textured foil", "reprint")
-
-    fun includes(variant: Variant): Boolean =
-        variant.kind != VariantKind.Reprint && variant.tags.none { it.lowercase() in EXCLUDED_TAGS }
-
-    fun variantsFor(catalog: Catalog, setId: String): List<Pair<Card, Variant>> =
-        catalog.cards.filter { it.setId == setId }.flatMap { card -> card.variants.filter(::includes).map { card to it } }
-}
-
 @Serializable
 data class SetConversionReport(val setId: String, val finishedAt: String, val results: List<VariantResult>) {
     fun count(status: VariantResult.Status) = results.count { it.status == status }
@@ -45,7 +33,7 @@ data class VariantResult(val cardId: String, val variantId: String, val status: 
 
 /**
  * Converts one set's variants into sim-ready files:
- * `converted/<SET>/<variantId>.png` and `<variantId>_small.jpg`.
+ * `converted/<SET>/<variantId>.jpg` and `<variantId>_small.jpg`.
  * Raw downloads are cached in `downloads/`; existing conversions and downloads are reused, so
  * re-running a set only fetches what's missing. A failed variant is recorded and skipped.
  */
@@ -73,15 +61,26 @@ class SetConverter(
         return SetConversionReport(setId, finishedAt(), results)
     }
 
+    /** Converts a single variant if it isn't already (downloading it if needed). */
+    suspend fun convertVariant(card: Card, variant: Variant): VariantResult {
+        val outDir = dirs.convertedSet(card.setId).createDirectories()
+        dirs.downloads.createDirectories()
+        return convertOne(card, variant, outDir)
+    }
+
+    /** Where [convertVariant] puts a variant's sim-ready files: (full JPEG, small JPEG). */
+    fun convertedFiles(setId: String, variantId: String): Pair<Path, Path> =
+        dirs.convertedSet(setId).let { it.resolve("$variantId.jpg") to it.resolve("${variantId}_small.jpg") }
+
     private suspend fun convertOne(card: Card, variant: Variant, outDir: Path): VariantResult {
-        val png = outDir.resolve("${variant.id}.png")
+        val full = outDir.resolve("${variant.id}.jpg")
         val small = outDir.resolve("${variant.id}_small.jpg")
-        if (png.exists() && small.exists()) return VariantResult(card.id, variant.id, VariantResult.Status.AlreadyConverted)
+        if (full.exists() && small.exists()) return VariantResult(card.id, variant.id, VariantResult.Status.AlreadyConverted)
 
         return try {
             val source = cachedDownload(variant) ?: download(variant)
             val images = withContext(Dispatchers.Default) { SimCardImages.render(source) }
-            writeAtomically(png, images.fullPng)
+            writeAtomically(full, images.fullJpg)
             writeAtomically(small, images.smallJpg)
             VariantResult(card.id, variant.id, VariantResult.Status.Converted)
         } catch (e: Exception) {
