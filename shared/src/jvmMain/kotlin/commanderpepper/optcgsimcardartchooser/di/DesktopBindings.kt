@@ -1,5 +1,7 @@
 package commanderpepper.optcgsimcardartchooser.di
 
+import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
+import commanderpepper.optcgsimcardartchooser.cards.NativeImagePicker
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppDirectories
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.SetConverter
 import commanderpepper.optcgsimcardartchooser.catalog.createHttpClient
@@ -29,6 +31,10 @@ interface DesktopBindings {
     @Provides
     @SingleIn(AppScope::class)
     fun provideFolderPicker(): FolderPicker = NativeFolderPicker()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideImagePicker(): ImagePicker = NativeImagePicker()
 
     @Provides
     @SingleIn(AppScope::class)

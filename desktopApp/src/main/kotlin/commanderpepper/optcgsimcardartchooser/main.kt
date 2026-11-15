@@ -18,7 +18,7 @@ fun main() {
             state = rememberWindowState(width = 960.dp, height = 720.dp),
         ) {
             CompositionLocalProvider(LocalMetroViewModelFactory provides graph.metroViewModelFactory) {
-                App(folderPicker = graph.folderPicker)
+                App(folderPicker = graph.folderPicker, imagePicker = graph.imagePicker)
             }
         }
     }

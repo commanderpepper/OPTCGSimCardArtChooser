@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
 import commanderpepper.optcgsimcardartchooser.navigation.AppNavigation
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
@@ -14,11 +15,12 @@ import dev.zacsweers.metrox.viewmodel.metroViewModel
 @Composable
 fun App(
     folderPicker: FolderPicker,
+    imagePicker: ImagePicker,
     folderViewModel: SimFolderViewModel = metroViewModel(),
 ) {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            AppNavigation(folderViewModel = folderViewModel, folderPicker = folderPicker)
+            AppNavigation(folderViewModel = folderViewModel, folderPicker = folderPicker, imagePicker = imagePicker)
         }
     }
 }

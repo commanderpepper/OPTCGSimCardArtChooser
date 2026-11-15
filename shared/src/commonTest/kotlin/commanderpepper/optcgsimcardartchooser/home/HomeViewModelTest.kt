@@ -3,6 +3,7 @@ package commanderpepper.optcgsimcardartchooser.home
 import androidx.compose.ui.graphics.ImageBitmap
 import commanderpepper.optcgsimcardartchooser.cards.CardArt
 import commanderpepper.optcgsimcardartchooser.cards.CatalogRepository
+import commanderpepper.optcgsimcardartchooser.cards.CustomImageInfo
 import commanderpepper.optcgsimcardartchooser.cards.ReapplyOutcome
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
 import commanderpepper.optcgsimcardartchooser.catalog.model.CardSet
@@ -57,6 +58,9 @@ class HomeViewModelTest {
         override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
         override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = Unit
         override suspend fun restoreOriginal(cardsPath: String, card: Card) = Unit
+        override suspend fun setCustomImage(card: Card, sourcePath: String) = CustomImageInfo(480, 671)
+        override suspend fun customPreview(card: Card): ImageBitmap? = null
+        override suspend fun removeCustomImage(card: Card) = Unit
     }
 
     private class FakeStore(private val saved: String?) : SimFolderStore {
@@ -118,6 +122,15 @@ class HomeViewModelTest {
         )
         vm.dismissMessage()
         assertNull(vm.state.value.message)
+    }
+
+    @Test
+    fun customImagesAreReappliedToo() {
+        val art = FakeArt(mapOf("OP01-001" to "OP01-001_custom"), mapOf("OP01-001" to ReapplyOutcome.Reapplied))
+        val vm = home(art)
+        vm.reapplyAll()
+        assertEquals(listOf("/sim/Cards OP01-001_custom"), art.reapplied)
+        assertEquals("Reapplied 1 card.", vm.state.value.message)
     }
 
     @Test

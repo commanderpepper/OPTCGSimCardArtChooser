@@ -160,6 +160,58 @@ class FileCardArtTest {
     }
 
     @Test
+    fun customImageIsConvertedToTheSimSpecAndAppliedLikeAnyVariant() = runTest {
+        val source = root.resolve("my art.png").also { it.writeBytes(encoded(Color.ORANGE, 800, 1100, "png")) }
+        val info = art.setCustomImage(jpgCard, source.toString())
+        assertEquals(800 to 1100, info.width to info.height)
+        assertFalse(info.isLowResolution)
+
+        val stored = dirs.data.resolve("custom/OP09/OP09-001.jpg")
+        val storedImage = ImageIO.read(stored.toFile())
+        assertEquals(480 to 671, storedImage.width to storedImage.height)
+        assertEquals(480 to 671, assertNotNull(art.customPreview(jpgCard)).let { it.width to it.height })
+        assertTrue(dirs.data.resolve("custom/OP09/OP09-001_small.jpg").exists(), "thumbnail made too")
+
+        val custom = CustomArt.variantFor(jpgCard)
+        art.apply(cards.toString(), jpgCard, custom)
+        assertContentEquals(stored.readBytes(), sim(jpgCard).jpg.readBytes())
+        assertContentEquals(stockJpg, backup(jpgCard).jpg.readBytes())
+        assertEquals("OP09-001_custom", art.appliedVariant(jpgCard.id))
+
+        // After a sim update, reapply works from the stored custom files.
+        sim(jpgCard).jpg.writeBytes(byteArrayOf(7, 7, 7))
+        assertEquals(ReapplyOutcome.Reapplied, art.reapply(cards.toString(), jpgCard, custom))
+        assertContentEquals(stored.readBytes(), sim(jpgCard).jpg.readBytes())
+    }
+
+    @Test
+    fun jpgCustomImagesWorkAndSmallOnesAreFlagged() = runTest {
+        val source = root.resolve("small.JPG").also { it.writeBytes(encoded(Color.ORANGE, 240, 335, "jpg")) }
+        assertTrue(art.setCustomImage(pngCard, source.toString()).isLowResolution)
+        assertNotNull(art.customPreview(pngCard))
+    }
+
+    @Test
+    fun unsupportedOrBrokenFilesAreRejected() = runTest {
+        val gif = root.resolve("art.gif").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+        assertTrue(assertFailsWith<IllegalStateException> { art.setCustomImage(jpgCard, gif.toString()) }.message!!.contains("only JPG and PNG"))
+        val fake = root.resolve("art.png").also { it.writeBytes("not really a png".encodeToByteArray()) }
+        assertTrue(assertFailsWith<IllegalStateException> { art.setCustomImage(jpgCard, fake.toString()) }.message!!.contains("isn't a readable"))
+        assertNull(art.customPreview(jpgCard))
+    }
+
+    @Test
+    fun removedOrMissingCustomImageCantBeApplied() = runTest {
+        val source = root.resolve("a.png").also { it.writeBytes(encoded(Color.ORANGE, 600, 838, "png")) }
+        art.setCustomImage(jpgCard, source.toString())
+        art.removeCustomImage(jpgCard)
+        assertNull(art.customPreview(jpgCard))
+        val error = assertFailsWith<IllegalStateException> { art.apply(cards.toString(), jpgCard, CustomArt.variantFor(jpgCard)) }
+        assertTrue(error.message!!.contains("custom image is missing"), error.message)
+        assertContentEquals(stockJpg, sim(jpgCard).jpg.readBytes())
+    }
+
+    @Test
     fun appliedVariantsListsEveryChangedCard() = runTest {
         art.apply(cards.toString(), pngCard, pngCard.variants[0])
         art.apply(cards.toString(), jpgCard, jpgCard.variants[1])

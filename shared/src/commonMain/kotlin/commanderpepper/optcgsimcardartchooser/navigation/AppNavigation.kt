@@ -18,6 +18,7 @@ import commanderpepper.optcgsimcardartchooser.cards.CardBrowserViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailScreen
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailViewModel
 import commanderpepper.optcgsimcardartchooser.cards.DeckListActions
+import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
 import dev.zacsweers.metrox.viewmodel.assistedMetroViewModel
 import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
@@ -33,6 +34,7 @@ import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
 fun AppNavigation(
     folderViewModel: SimFolderViewModel,
     folderPicker: FolderPicker,
+    imagePicker: ImagePicker,
 ) {
     val folderState by folderViewModel.state.collectAsStateWithLifecycle()
     val start: Pages = if (folderState.confirmed != null) Pages.Home else Pages.SimFolderSetup
@@ -106,6 +108,8 @@ fun AppNavigation(
                     onSelect = viewModel::select,
                     onDismissMessage = viewModel::dismissMessage,
                     onBack = { backStack.removeLastOrNull() },
+                    onChooseCustomImage = { viewModel.useCustomImage(imagePicker.pick()) },
+                    onRemoveCustomImage = viewModel::removeCustomImage,
                 )
             }
         },

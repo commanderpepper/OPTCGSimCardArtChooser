@@ -3,6 +3,7 @@ package commanderpepper.optcgsimcardartchooser.cards
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,9 @@ fun CardDetailScreen(
     onSelect: (optionId: String) -> Unit,
     onDismissMessage: () -> Unit,
     onBack: () -> Unit,
+    /** Opens the image picker; used both to add and to replace the custom image. */
+    onChooseCustomImage: () -> Unit,
+    onRemoveCustomImage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -82,7 +86,21 @@ fun CardDetailScreen(
                             isApplying = option.id == state.applyingId,
                             enabled = state.canApply && state.applyingId == null && option.image !is ArtImage.Unavailable,
                             onClick = { onSelect(option.id) },
+                            customActions = if (option.isCustom) {
+                                { CustomImageActions(state.applyingId == null, onChooseCustomImage, onRemoveCustomImage) }
+                            } else {
+                                null
+                            },
                         )
+                    }
+                    if (state.canAddCustomImage) {
+                        item(key = "add-custom") {
+                            AddCustomImageTile(
+                                isWorking = state.applyingId != null && state.options.none { it.id == state.applyingId },
+                                enabled = state.applyingId == null,
+                                onClick = onChooseCustomImage,
+                            )
+                        }
                     }
                 }
             }
@@ -97,6 +115,7 @@ private fun ArtOptionTile(
     isApplying: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
+    customActions: (@Composable () -> Unit)? = null,
 ) {
     // The applied tile never looks disabled, even while another option is being applied.
     val looksEnabled = enabled || isApplied
@@ -141,6 +160,46 @@ private fun ArtOptionTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
+            )
+            customActions?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun CustomImageActions(enabled: Boolean, onReplace: () -> Unit, onRemove: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextButton(onClick = onReplace, enabled = enabled) { Text("Replace…") }
+        TextButton(onClick = onRemove, enabled = enabled) { Text("Remove") }
+    }
+}
+
+/** Dashed-style tile for adding the user's own image. */
+@Composable
+private fun AddCustomImageTile(isWorking: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    OutlinedCard(onClick = onClick, enabled = enabled) {
+        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(ArtSize)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isWorking) {
+                    CircularProgressIndicator()
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("+", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+                        Text("Use your own image", style = MaterialTheme.typography.titleSmall)
+                        Text("JPG or PNG", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Text(
+                "Resized to the sim's card size; cropped to fit if the shape differs.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
         }
     }

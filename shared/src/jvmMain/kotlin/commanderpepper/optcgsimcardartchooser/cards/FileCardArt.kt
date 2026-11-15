@@ -6,6 +6,7 @@ import commanderpepper.optcgsimcardartchooser.catalog.CatalogJson
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppDirectories
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.SetConverter
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.VariantResult
+import commanderpepper.optcgsimcardartchooser.catalog.image.SimCardImages
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
 import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
 import dev.zacsweers.metro.AppScope
@@ -26,7 +27,9 @@ import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
+import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
 import kotlin.io.path.readBytes
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -34,6 +37,7 @@ import kotlin.io.path.writeText
 /**
  * Swaps card art on disk. For card `OP01-001` in a sim whose cards live at `<Cards>`:
  * - converted art: `<data>/converted/OP01/<variantId>.jpg` + `_small.jpg` (made on demand);
+ * - the user's own image: `<data>/custom/OP01/OP01-001.jpg` + `_small.jpg` (one per card);
  * - applied art: written to `<Cards>/OP01/OP01-001.jpg` + `OP01-001_small.jpg`. The sim prefers
  *   `<ID>.jpg` over `<ID>.png`, so this wins whichever format the stock art uses; a stock
  *   `<ID>.png` is left untouched;
@@ -53,8 +57,74 @@ class FileCardArt(
     private val mutex = Mutex()
 
     override suspend fun variantPreview(card: Card, variant: Variant): ImageBitmap? {
-        if (converter.convertVariant(card, variant).status == VariantResult.Status.Failed) return null
-        return decode(converter.convertedFiles(card.setId, variant.id).first)
+        val (full, _) = try {
+            artFiles(card, variant)
+        } catch (_: IllegalStateException) {
+            return null
+        }
+        return decode(full)
+    }
+
+    /**
+     * The sim-ready (full, small) files for [variant]: the user's custom image, or catalog art
+     * converted on demand. Throws with a readable message if they can't be produced.
+     */
+    private suspend fun artFiles(card: Card, variant: Variant): Pair<Path, Path> {
+        if (CustomArt.isCustom(variant)) {
+            val files = customFiles(card)
+            if (!files.first.isRegularFile() || !files.second.isRegularFile()) {
+                error("the custom image is missing; choose the image again")
+            }
+            return files
+        }
+        val result = converter.convertVariant(card, variant)
+        if (result.status == VariantResult.Status.Failed) {
+            error("the art couldn't be downloaded or converted (${result.message})")
+        }
+        return converter.convertedFiles(card.setId, variant.id)
+    }
+
+    private fun customFiles(card: Card): Pair<Path, Path> =
+        dirs.data.resolve("custom").resolve(card.setId).let { it.resolve("${card.id}.jpg") to it.resolve("${card.id}_small.jpg") }
+
+    override suspend fun setCustomImage(card: Card, sourcePath: String): CustomImageInfo = mutex.withLock {
+        val source = Path(sourcePath)
+        val extension = source.extension.lowercase()
+        if (extension !in CustomArt.ACCEPTED_EXTENSIONS) error("only JPG and PNG images are supported")
+        withContext(Dispatchers.IO) {
+            val bytes = try {
+                source.readBytes()
+            } catch (e: Exception) {
+                error("the file couldn't be read (${e.message})")
+            }
+            val decoded = try {
+                SimCardImages.decode(bytes)
+            } catch (_: IllegalArgumentException) {
+                error("that file isn't a readable JPG or PNG image")
+            }
+            val images = SimCardImages.render(bytes)
+            val (full, small) = customFiles(card)
+            full.parent.createDirectories()
+            writeAtomically(full, images.fullJpg)
+            writeAtomically(small, images.smallJpg)
+            CustomImageInfo(decoded.width, decoded.height)
+        }
+    }
+
+    override suspend fun customPreview(card: Card): ImageBitmap? = decode(customFiles(card).first)
+
+    override suspend fun removeCustomImage(card: Card) = mutex.withLock {
+        withContext(Dispatchers.IO) { customFiles(card).toList().forEach { it.deleteIfExists() } }
+    }
+
+    private fun writeAtomically(target: Path, bytes: ByteArray) {
+        val temp = Files.createTempFile(target.parent, ".${target.name}", ".tmp")
+        try {
+            Files.write(temp, bytes)
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            Files.deleteIfExists(temp)
+        }
     }
 
     override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? {
@@ -67,11 +137,7 @@ class FileCardArt(
     }
 
     override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = mutex.withLock {
-        val result = converter.convertVariant(card, variant)
-        if (result.status == VariantResult.Status.Failed) {
-            error("the art couldn't be downloaded or converted (${result.message})")
-        }
-        val (convertedFull, convertedSmall) = converter.convertedFiles(card.setId, variant.id)
+        val (convertedFull, convertedSmall) = artFiles(card, variant)
         val sim = simFiles(cardsPath, card)
         val backup = backupFiles(card)
         val firstChange = card.id !in readSelections()
@@ -112,11 +178,7 @@ class FileCardArt(
     override suspend fun appliedVariants(): Map<String, String> = mutex.withLock { withContext(Dispatchers.IO) { readSelections() } }
 
     override suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome = mutex.withLock {
-        val result = converter.convertVariant(card, variant)
-        if (result.status == VariantResult.Status.Failed) {
-            error("the art couldn't be downloaded or converted (${result.message})")
-        }
-        val (convertedFull, convertedSmall) = converter.convertedFiles(card.setId, variant.id)
+        val (convertedFull, convertedSmall) = artFiles(card, variant)
         val sim = simFiles(cardsPath, card)
         val backup = backupFiles(card)
         withContext(Dispatchers.IO) {

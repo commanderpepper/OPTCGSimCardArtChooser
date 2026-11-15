@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import commanderpepper.optcgsimcardartchooser.cards.CardArt
 import commanderpepper.optcgsimcardartchooser.cards.CatalogRepository
+import commanderpepper.optcgsimcardartchooser.cards.CustomArt
 import commanderpepper.optcgsimcardartchooser.cards.ReapplyOutcome
 import commanderpepper.optcgsimcardartchooser.simfolder.SimCardsFolder
 import dev.zacsweers.metro.AppScope
@@ -69,7 +70,7 @@ class HomeViewModel(
                 // One at a time: a card whose converted art is missing may need a download.
                 selections.entries.forEachIndexed { index, (cardId, variantId) ->
                     val card = cards[cardId]
-                    val variant = card?.variants?.firstOrNull { it.id == variantId }
+                    val variant = card?.let { CustomArt.resolve(it, variantId) }
                     if (card == null || variant == null) {
                         failed += "$cardId (no longer in the catalog)"
                     } else {

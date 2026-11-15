@@ -34,6 +34,19 @@ interface CardArt {
      * Throws with a readable message if the art can't be prepared or copied.
      */
     suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome
+
+    /**
+     * Converts the image at [sourcePath] (JPG or PNG) into [card]'s custom art, replacing any
+     * previous one. Apply it with [CustomArt.variantFor]. Throws with a readable message for
+     * unsupported or unreadable files.
+     */
+    suspend fun setCustomImage(card: Card, sourcePath: String): CustomImageInfo
+
+    /** [card]'s custom art, or null if it has none. */
+    suspend fun customPreview(card: Card): ImageBitmap?
+
+    /** Deletes [card]'s custom art. Doesn't touch the sim; restore the original first if it's in use. */
+    suspend fun removeCustomImage(card: Card)
 }
 
 enum class ReapplyOutcome {
