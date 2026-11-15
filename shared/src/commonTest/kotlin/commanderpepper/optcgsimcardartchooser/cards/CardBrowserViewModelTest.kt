@@ -173,6 +173,19 @@ class CardBrowserViewModelTest {
     }
 
     @Test
+    fun closingTheQuickSwapWindowRefreshesBadgesAndThumbnails() {
+        val art = FakeArt()
+        val vm = browser(FakeRepository { catalog }, art = art)
+        val revision = vm.state.value.thumbnailRevision
+
+        art.modified = mapOf("OP01-061" to "OP01-061_custom2") // swapped in the window
+        vm.onQuickSwapClosed()
+
+        assertEquals(setOf("OP01-061"), vm.state.value.modifiedCardIds)
+        assertEquals(revision + 1, vm.state.value.thumbnailRevision, "visible thumbnails reload")
+    }
+
+    @Test
     fun refreshPicksUpArtChangedOnTheCardPage() {
         val art = FakeArt()
         val vm = browser(FakeRepository { catalog }, art = art)

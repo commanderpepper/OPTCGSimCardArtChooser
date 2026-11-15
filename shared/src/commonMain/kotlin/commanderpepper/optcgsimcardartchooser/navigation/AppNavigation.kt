@@ -2,7 +2,9 @@ package commanderpepper.optcgsimcardartchooser.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -20,6 +22,7 @@ import commanderpepper.optcgsimcardartchooser.cards.CardDetailViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CustomImageActions
 import commanderpepper.optcgsimcardartchooser.cards.DeckListActions
 import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
+import commanderpepper.optcgsimcardartchooser.cards.QuickArtPickerDialog
 import dev.zacsweers.metrox.viewmodel.assistedMetroViewModel
 import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
@@ -82,6 +85,8 @@ fun AppNavigation(
                 // Scoped to this entry: created when the page opens, cleared when it's popped.
                 val viewModel: CardBrowserViewModel = metroViewModel()
                 val state by viewModel.state.collectAsStateWithLifecycle()
+                // The card whose quick-swap window is open (long press), if any.
+                var quickSwapCardId by remember { mutableStateOf<String?>(null) }
                 // Runs each time the page is shown again, e.g. after changing art on a card page.
                 LaunchedEffect(viewModel) { viewModel.refreshModified() }
                 CardBrowserScreen(
@@ -90,6 +95,7 @@ fun AppNavigation(
                     onToggleColor = viewModel::toggleColor,
                     onToggleCategory = viewModel::toggleCategory,
                     onToggleSet = viewModel::toggleSet,
+                    onToggleTrait = viewModel::toggleTrait,
                     onToggleArtStatus = viewModel::toggleArtStatus,
                     deckActions = remember(viewModel) {
                         DeckListActions(viewModel::applyDeckList, viewModel::clearDeckList, viewModel::dismissDeckMessage)
@@ -99,7 +105,22 @@ fun AppNavigation(
                     onBack = { backStack.removeLastOrNull() },
                     loadThumbnail = viewModel::thumbnail,
                     onCardSelected = { cardId -> backStack.add(Pages.CardDetail(cardId)) },
+                    onCardLongPressed = { cardId -> quickSwapCardId = cardId },
                 )
+                quickSwapCardId?.let { cardId ->
+                    QuickArtPickerDialog(
+                        cardId = cardId,
+                        onDismiss = {
+                            quickSwapCardId = null
+                            viewModel.onQuickSwapClosed()
+                        },
+                        onOpenCardPage = {
+                            quickSwapCardId = null
+                            viewModel.onQuickSwapClosed()
+                            backStack.add(Pages.CardDetail(cardId))
+                        },
+                    )
+                }
             }
             entry<Pages.CardDetail> { page ->
                 val viewModel = assistedMetroViewModel<CardDetailViewModel, CardDetailViewModel.Factory> { create(page.cardId) }

@@ -1,5 +1,6 @@
 package commanderpepper.optcgsimcardartchooser.cards
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +59,7 @@ fun CardBrowserScreen(
     onToggleColor: (CardColor) -> Unit,
     onToggleCategory: (Category) -> Unit,
     onToggleSet: (String) -> Unit,
+    onToggleTrait: (String) -> Unit,
     onToggleArtStatus: (ArtStatus) -> Unit,
     deckActions: DeckListActions,
     onClearFilters: () -> Unit,
@@ -61,6 +67,8 @@ fun CardBrowserScreen(
     onBack: () -> Unit,
     loadThumbnail: suspend (Card) -> ImageBitmap?,
     onCardSelected: (cardId: String) -> Unit,
+    /** Long press or right-click on a card: open the quick-swap window. */
+    onCardLongPressed: (cardId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -76,10 +84,10 @@ fun CardBrowserScreen(
                 Button(onClick = onRetry) { Text("Retry") }
             }
             else -> {
-                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleArtStatus, deckActions, onClearFilters)
+                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleTrait, onToggleArtStatus, deckActions, onClearFilters)
                 state.deckMessage?.let { DeckMessageBanner(it, deckActions.onDismissMessage) }
                 Text(
-                    "${state.cards.size} of ${state.totalCards} cards",
+                    "${state.cards.size} of ${state.totalCards} cards · right-click or long-press a card to swap its art quickly",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (state.cards.isEmpty()) {
@@ -92,7 +100,14 @@ fun CardBrowserScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(state.cards, key = { it.id }) { card ->
-                            CardTile(card, isModified = card.id in state.modifiedCardIds, loadThumbnail, onClick = { onCardSelected(card.id) })
+                            CardTile(
+                                card = card,
+                                isModified = card.id in state.modifiedCardIds,
+                                thumbnailRevision = state.thumbnailRevision,
+                                loadThumbnail = loadThumbnail,
+                                onClick = { onCardSelected(card.id) },
+                                onLongClick = { onCardLongPressed(card.id) },
+                            )
                         }
                     }
                 }
@@ -108,6 +123,7 @@ private fun Filters(
     onToggleColor: (CardColor) -> Unit,
     onToggleCategory: (Category) -> Unit,
     onToggleSet: (String) -> Unit,
+    onToggleTrait: (String) -> Unit,
     onToggleArtStatus: (ArtStatus) -> Unit,
     deckActions: DeckListActions,
     onClearFilters: () -> Unit,
@@ -116,7 +132,7 @@ private fun Filters(
     OutlinedTextField(
         value = filter.query,
         onValueChange = onQueryChanged,
-        label = { Text("Search by name or card number") },
+        label = { Text("Search by name, card number or trait") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -146,6 +162,14 @@ private fun Filters(
             optionLabel = { id -> state.sets.firstOrNull { it.id == id }?.let { "${it.id} · ${it.name}" } ?: id },
             summaryLabel = { it },
             onToggle = onToggleSet,
+        )
+        MultiSelectDropdown(
+            label = "Trait",
+            sections = listOf(DropdownSection(null, state.traits)),
+            selected = filter.traits,
+            optionLabel = { it },
+            onToggle = onToggleTrait,
+            searchPlaceholder = "Search traits",
         )
         MultiSelectDropdown(
             label = "Art",
@@ -239,12 +263,21 @@ private fun DeckMessageBanner(message: String, onDismiss: () -> Unit) {
 }
 
 /** A group of dropdown options with an optional header (e.g. "Starter Decks"). */
-private class DropdownSection<T>(val title: String?, val options: List<T>)
+internal class DropdownSection<T>(val title: String?, val options: List<T>)
+
+/** Options whose label contains [search] (case-insensitive); empty sections are dropped. Blank = all. */
+internal fun <T> List<DropdownSection<T>>.narrowedTo(search: String, label: (T) -> String): List<DropdownSection<T>> {
+    val text = search.trim()
+    if (text.isEmpty()) return this
+    return map { s -> DropdownSection(s.title, s.options.filter { label(it).contains(text, ignoreCase = true) }) }
+        .filter { it.options.isNotEmpty() }
+}
 
 /**
  * A button showing the current selection ("Color: Red, Blue", "Set: 5 selected" or "Color: All")
  * that opens a checkbox menu. The menu stays open while toggling so several options can be
- * picked at once; long menus scroll.
+ * picked at once; long menus scroll. With [searchPlaceholder], the menu starts with a search box
+ * (focused on open, cleared on close) that narrows the options as you type.
  */
 @Composable
 private fun <T> MultiSelectDropdown(
@@ -254,14 +287,17 @@ private fun <T> MultiSelectDropdown(
     optionLabel: (T) -> String,
     onToggle: (T) -> Unit,
     summaryLabel: (T) -> String = optionLabel,
+    searchPlaceholder: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
     val chosen = sections.flatMap { it.options }.filter { it in selected }
     val summary = when {
         chosen.isEmpty() -> "All"
         chosen.size > MAX_SUMMARY_ITEMS -> "${chosen.size} selected"
         else -> chosen.joinToString(", ", transform = summaryLabel)
     }
+    val visibleSections = sections.narrowedTo(search, optionLabel)
     Box {
         OutlinedButton(onClick = { expanded = true }) {
             Text("$label: $summary", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -269,10 +305,31 @@ private fun <T> MultiSelectDropdown(
         }
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
+            onDismissRequest = {
+                expanded = false
+                search = ""
+            },
             modifier = Modifier.heightIn(max = 480.dp),
         ) {
-            sections.forEach { section ->
+            if (searchPlaceholder != null) {
+                val focus = remember { FocusRequester() }
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    placeholder = { Text(searchPlaceholder) },
+                    singleLine = true,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).widthIn(min = 260.dp).focusRequester(focus),
+                )
+                LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+                if (visibleSections.isEmpty()) {
+                    Text(
+                        "No ${label.lowercase()}s match \"${search.trim()}\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            visibleSections.forEach { section ->
                 section.title?.let { title ->
                     Text(
                         title,
@@ -296,10 +353,24 @@ private fun <T> MultiSelectDropdown(
 private const val MAX_SUMMARY_ITEMS = 3
 
 @Composable
-private fun CardTile(card: Card, isModified: Boolean, loadThumbnail: suspend (Card) -> ImageBitmap?, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+private fun CardTile(
+    card: Card,
+    isModified: Boolean,
+    thumbnailRevision: Int,
+    loadThumbnail: suspend (Card) -> ImageBitmap?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val shape = CardDefaults.shape
+    Card(
+        shape = shape,
+        // Long press or right-click opens the quick-swap window.
+        modifier = Modifier.fillMaxWidth().clip(shape)
+            .onSecondaryClick(onLongClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
         Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CardThumbnailImage(card = card, load = loadThumbnail)
+            CardThumbnailImage(card = card, load = loadThumbnail, revision = thumbnailRevision)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(card.id, style = MaterialTheme.typography.labelMedium)

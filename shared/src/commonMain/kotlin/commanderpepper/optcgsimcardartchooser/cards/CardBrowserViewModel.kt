@@ -46,6 +46,8 @@ data class CardBrowserState(
     val sets: List<CardSet> = emptyList(),
     /** Options for the trait filter. */
     val traits: List<String> = emptyList(),
+    /** Bumped when art may have changed (e.g. after a quick swap), so visible thumbnails reload. */
+    val thumbnailRevision: Int = 0,
 ) {
     val hasActiveFilter: Boolean get() = filter != CardFilter() || artStatuses.isNotEmpty() || deckCardIds != null
 }
@@ -136,6 +138,12 @@ class CardBrowserViewModel(
             val modified = art.appliedVariants().keys
             _state.update { withMatches(it.copy(modifiedCardIds = modified)) }
         }
+    }
+
+    /** After the quick-swap window closes: refresh "Modified" badges and the swapped card's thumbnail. */
+    fun onQuickSwapClosed() {
+        refreshModified()
+        _state.update { it.copy(thumbnailRevision = it.thumbnailRevision + 1) }
     }
 
     private fun load() {

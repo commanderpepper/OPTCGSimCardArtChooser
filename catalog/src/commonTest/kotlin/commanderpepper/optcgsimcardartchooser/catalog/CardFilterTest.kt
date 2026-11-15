@@ -32,6 +32,14 @@ class CardFilterTest {
     }
 
     @Test
+    fun queryAlsoMatchesTraits() {
+        assertEquals(listOf("OP01-001"), ids(CardFilter(query = "supernova")))
+        assertEquals(listOf("OP01-001", "EB01-006"), ids(CardFilter(query = "Straw Hat")))
+        // Substring search: "animal" finds both the Animal trait and Animal Kingdom Pirates.
+        assertEquals(listOf("OP01-061", "EB01-006"), ids(CardFilter(query = "animal")))
+    }
+
+    @Test
     fun setFieldsMatchAnyValueAndCombineWithAnd() {
         assertEquals(listOf("OP01-001", "EB01-006"), ids(CardFilter(colors = setOf(CardColor.Red))))
         assertEquals(listOf("OP01-001"), ids(CardFilter(colors = setOf(CardColor.Red), categories = setOf(Category.Leader))))

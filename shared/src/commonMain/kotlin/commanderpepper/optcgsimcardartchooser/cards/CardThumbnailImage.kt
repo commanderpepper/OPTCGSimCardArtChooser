@@ -40,8 +40,10 @@ fun CardThumbnailImage(
     card: Card,
     load: suspend (Card) -> ImageBitmap?,
     modifier: Modifier = Modifier,
+    /** Change to reload, e.g. after the card's art was swapped. */
+    revision: Int = 0,
 ) {
-    val state by produceState<ThumbnailState>(ThumbnailState.Loading, card.id) {
+    val state by produceState<ThumbnailState>(ThumbnailState.Loading, card.id, revision) {
         value = load(card)?.let(ThumbnailState::Loaded) ?: ThumbnailState.NotFound
     }
     val frame = modifier.size(ThumbnailSize).clip(RoundedCornerShape(6.dp))
