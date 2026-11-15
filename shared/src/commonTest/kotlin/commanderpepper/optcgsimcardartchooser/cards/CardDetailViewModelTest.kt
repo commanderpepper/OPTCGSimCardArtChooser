@@ -80,22 +80,28 @@ class CardDetailViewModelTest {
 
         override suspend fun reapply(cardsPath: String, card: Card, variant: Variant) = ReapplyOutcome.AlreadyApplied
 
-        /** The card's custom image, if any; paths ending in ".txt" are rejected like unreadable files. */
-        var custom: ImageBitmap? = null
+        /** The card's custom image IDs, in order; paths containing "broken" fail like unreadable files. */
+        val customIds = mutableListOf<String>()
         var customSize = CustomImageInfo(600, 838)
 
-        override suspend fun setCustomImage(card: Card, sourcePath: String): CustomImageInfo {
-            calls += "custom $sourcePath"
-            if (sourcePath.endsWith(".txt")) error("only JPG and PNG images are supported")
-            custom = ImageBitmap(48, 67)
-            return customSize
+        override suspend fun customImages(card: Card) = customIds.map { CustomImage(CustomArt.variant(it), ImageBitmap(48, 67)) }
+
+        override suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo> {
+            calls += "add $sourcePath"
+            if ("broken" in sourcePath) error("that file isn't a readable JPG, PNG or WebP image")
+            val next = (customIds.maxOfOrNull(CustomArt::number) ?: 0) + 1
+            val id = CustomArt.variantId(card.id, next).also(customIds::add)
+            return CustomImage(CustomArt.variant(id), ImageBitmap(48, 67)) to customSize
         }
 
-        override suspend fun customPreview(card: Card): ImageBitmap? = custom
+        override suspend fun replaceCustomImage(card: Card, variantId: String, sourcePath: String): Pair<CustomImage, CustomImageInfo> {
+            calls += "replace $variantId $sourcePath"
+            return CustomImage(CustomArt.variant(variantId), ImageBitmap(48, 67)) to customSize
+        }
 
-        override suspend fun removeCustomImage(card: Card) {
-            calls += "remove custom"
-            custom = null
+        override suspend fun removeCustomImage(card: Card, variantId: String) {
+            calls += "remove $variantId"
+            customIds -= variantId
         }
     }
 
@@ -220,29 +226,77 @@ class CardDetailViewModelTest {
     }
 
     @Test
-    fun choosingAnImageConvertsItAddsItAsAnOptionAndAppliesIt() {
+    fun addingOneImageConvertsItAddsItAsAnOptionAndAppliesIt() {
         val art = FakeArt()
         val thumbnails = FakeThumbnails()
         val vm = detail(art = art, thumbnails = thumbnails)
-        assertTrue(vm.state.value.canAddCustomImage)
+        assertFalse(vm.state.value.hasCustomImages)
 
-        vm.useCustomImage("C:/pics/chopper.png")
+        vm.addCustomImages(listOf("C:/pics/chopper.png"))
 
-        assertEquals(listOf("custom C:/pics/chopper.png", "apply /sim/Cards EB01-006_custom"), art.calls)
+        assertEquals(listOf("add C:/pics/chopper.png", "apply /sim/Cards EB01-006_custom"), art.calls)
         val custom = vm.state.value.options.last()
         assertEquals("EB01-006_custom" to "Custom image", custom.id to custom.title)
         assertIs<ArtImage.Loaded>(custom.image)
         assertEquals("EB01-006_custom", vm.state.value.appliedId)
-        assertFalse(vm.state.value.canAddCustomImage, "one custom image per card; replace it instead")
         assertEquals("Your image is now used in the sim.", vm.state.value.message)
         assertEquals(listOf("EB01-006"), thumbnails.invalidated)
+        assertFalse(vm.state.value.isAddingImages)
+    }
+
+    @Test
+    fun addingSeveralImagesAddsThemAllWithoutApplying() {
+        val art = FakeArt()
+        val vm = detail(art = art)
+        vm.addCustomImages(listOf("a.jpg", "b.PNG", "c.jpeg"))
+
+        assertEquals(listOf("add a.jpg", "add b.PNG", "add c.jpeg"), art.calls, "nothing applied")
+        assertEquals(
+            listOf("EB01-006_custom" to "Custom image", "EB01-006_custom2" to "Custom image 2", "EB01-006_custom3" to "Custom image 3"),
+            vm.state.value.options.filter { it.isCustom }.map { it.id to it.title },
+        )
+        assertEquals(CardDetailState.ORIGINAL_ID, vm.state.value.appliedId)
+        assertEquals("Added 3 images. Click one to use it.", vm.state.value.message)
+
+        vm.select("EB01-006_custom2")
+        assertEquals("EB01-006_custom2", vm.state.value.appliedId)
+    }
+
+    @Test
+    fun droppedFilesThatArentImagesAreSkippedAndListed() {
+        val art = FakeArt()
+        val vm = detail(art = art)
+        vm.addCustomImages(listOf("C:/dl/notes.txt", "C:/dl/art.png", "C:/dl/broken.jpg"))
+
+        assertEquals(listOf("add C:/dl/art.png", "add C:/dl/broken.jpg", "apply /sim/Cards EB01-006_custom"), art.calls)
+        assertEquals(
+            "Your image is now used in the sim. Skipped notes.txt (not a JPG, PNG or WebP); broken.jpg (that file isn't a readable JPG, PNG or WebP image).",
+            vm.state.value.message,
+        )
+    }
+
+    @Test
+    fun imagesDroppedFromABrowserAreAddedEvenWithoutAFileExtension() {
+        val art = FakeArt()
+        val vm = detail(art = art)
+        vm.addCustomImages(listOf("https://cdn.example/art?id=42"))
+        assertEquals(listOf("add https://cdn.example/art?id=42", "apply /sim/Cards EB01-006_custom"), art.calls)
+    }
+
+    @Test
+    fun unreadableDropExplainsWhatToDoInstead() {
+        val art = FakeArt()
+        val vm = detail(art = art)
+        vm.reportUnreadableDrop()
+        assertTrue(vm.state.value.message!!.startsWith("Couldn't read what was dropped."))
+        assertTrue(art.calls.isEmpty())
     }
 
     @Test
     fun lowResolutionImagesWorkWithANote() {
         val art = FakeArt().apply { customSize = CustomImageInfo(300, 420) }
         val vm = detail(art = art)
-        vm.useCustomImage("small.jpg")
+        vm.addCustomImages(listOf("small.jpg"))
         assertEquals(
             "Your image is now used in the sim. It's 300×420, smaller than the sim's 480×671, so it may look soft.",
             vm.state.value.message,
@@ -250,46 +304,61 @@ class CardDetailViewModelTest {
     }
 
     @Test
-    fun cancelledPickerDoesNothingAndBadFilesExplainWhy() {
+    fun cancelledPickerOrNothingUsableChangesNothing() {
         val art = FakeArt()
         val vm = detail(art = art)
-        vm.useCustomImage(null)
+        vm.addCustomImages(emptyList())
         assertTrue(art.calls.isEmpty())
 
-        vm.useCustomImage("notes.txt")
-        assertEquals("Couldn't use that image: only JPG and PNG images are supported", vm.state.value.message)
-        assertTrue(vm.state.value.canAddCustomImage)
+        vm.addCustomImages(listOf("notes.txt"))
+        assertEquals("Skipped notes.txt (not a JPG, PNG or WebP).", vm.state.value.message)
+        assertFalse(vm.state.value.hasCustomImages)
         assertEquals(CardDetailState.ORIGINAL_ID, vm.state.value.appliedId)
     }
 
     @Test
-    fun existingCustomImageAppearsAndCanBeSelected() {
-        val art = FakeArt(applied = "EB01-006_custom").apply { custom = ImageBitmap(48, 67) }
+    fun existingCustomImagesAppearAndTheSavedOneIsInUse() {
+        val art = FakeArt(applied = "EB01-006_custom2").apply { customIds += listOf("EB01-006_custom", "EB01-006_custom2") }
         val vm = detail(art = art)
-        assertEquals("EB01-006_custom", vm.state.value.options.last().id)
-        assertEquals("EB01-006_custom", vm.state.value.appliedId, "the saved custom selection is recognised")
+        assertEquals(listOf("EB01-006_custom", "EB01-006_custom2"), vm.state.value.options.filter { it.isCustom }.map { it.id })
+        assertEquals("EB01-006_custom2", vm.state.value.appliedId)
     }
 
     @Test
-    fun removingTheCustomImageInUseRestoresTheOriginalFirst() {
-        val art = FakeArt()
+    fun replacingTheImageInUseUpdatesTheSim() {
+        val art = FakeArt(applied = "EB01-006_custom2").apply { customIds += listOf("EB01-006_custom", "EB01-006_custom2") }
         val vm = detail(art = art)
-        vm.useCustomImage("me.jpg")
+        vm.replaceCustomImage("EB01-006_custom2", "new.png")
+        assertEquals(listOf("replace EB01-006_custom2 new.png", "apply /sim/Cards EB01-006_custom2"), art.calls)
+        assertEquals("Replaced Custom image 2.", vm.state.value.message)
+
         art.calls.clear()
+        vm.replaceCustomImage("EB01-006_custom", "other.png") // not in use: sim untouched
+        assertEquals(listOf("replace EB01-006_custom other.png"), art.calls)
 
-        vm.removeCustomImage()
-        assertEquals(listOf("restore /sim/Cards", "remove custom"), art.calls)
-        assertEquals(CardDetailState.ORIGINAL_ID, vm.state.value.appliedId)
-        assertTrue(vm.state.value.options.none { it.isCustom })
-        assertTrue(vm.state.value.canAddCustomImage)
+        art.calls.clear()
+        vm.replaceCustomImage("EB01-006_custom", null) // picker cancelled
+        assertTrue(art.calls.isEmpty())
     }
 
     @Test
-    fun removingAnUnusedCustomImageLeavesTheSimAlone() {
-        val art = FakeArt().apply { custom = ImageBitmap(48, 67) }
+    fun removingTheImageInUseRestoresTheOriginalFirstAndKeepsTheOthers() {
+        val art = FakeArt(applied = "EB01-006_custom").apply { customIds += listOf("EB01-006_custom", "EB01-006_custom2") }
         val vm = detail(art = art)
-        vm.removeCustomImage()
-        assertEquals(listOf("remove custom"), art.calls)
+
+        vm.removeCustomImage("EB01-006_custom")
+        assertEquals(listOf("restore /sim/Cards", "remove EB01-006_custom"), art.calls)
+        assertEquals(CardDetailState.ORIGINAL_ID, vm.state.value.appliedId)
+        assertEquals(listOf("EB01-006_custom2"), vm.state.value.options.filter { it.isCustom }.map { it.id })
+        assertEquals("Removed Custom image.", vm.state.value.message)
+    }
+
+    @Test
+    fun removingAnUnusedImageLeavesTheSimAlone() {
+        val art = FakeArt().apply { customIds += "EB01-006_custom" }
+        val vm = detail(art = art)
+        vm.removeCustomImage("EB01-006_custom")
+        assertEquals(listOf("remove EB01-006_custom"), art.calls)
     }
 
     @Test

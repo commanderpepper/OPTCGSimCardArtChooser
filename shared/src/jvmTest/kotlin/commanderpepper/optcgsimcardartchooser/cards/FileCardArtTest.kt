@@ -10,7 +10,9 @@ import commanderpepper.optcgsimcardartchooser.catalog.model.VariantKind
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -49,13 +51,15 @@ class FileCardArtTest {
     }
 
     private val http = HttpClient(MockEngine { request ->
+        val url = request.url.toString()
         when {
-            "missing" in request.url.toString() -> respond("nope", HttpStatusCode.NotFound)
-            else -> respond(encoded(Color.GREEN, 600, 838, "png"), HttpStatusCode.OK)
+            "missing" in url -> respond("nope", HttpStatusCode.NotFound)
+            "page" in url -> respond("<html></html>", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/html; charset=utf-8"))
+            else -> respond(encoded(Color.GREEN, 600, 838, "png"), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/png"))
         }
     })
     private val converter = SetConverter(http, dirs, requestDelayMillis = 0)
-    private val art = FileCardArt(dirs, converter)
+    private val art = FileCardArt(dirs, converter, http)
 
     private fun card(id: String) = Card(
         id, "name", id.substringBefore('-'), Category.Leader, emptyList(),
@@ -159,56 +163,162 @@ class FileCardArtTest {
         assertFalse(backup(pngCard).jpg.exists(), "our own .jpg is never backed up")
     }
 
+    private fun image(name: String, width: Int = 800, height: Int = 1100, format: String = "png", color: Color = Color.ORANGE): String =
+        root.resolve(name).also { it.writeBytes(encoded(color, width, height, format)) }.toString()
+
     @Test
     fun customImageIsConvertedToTheSimSpecAndAppliedLikeAnyVariant() = runTest {
-        val source = root.resolve("my art.png").also { it.writeBytes(encoded(Color.ORANGE, 800, 1100, "png")) }
-        val info = art.setCustomImage(jpgCard, source.toString())
+        val (added, info) = art.addCustomImage(jpgCard, image("my art.png"))
+        assertEquals("OP09-001_custom", added.variant.id)
         assertEquals(800 to 1100, info.width to info.height)
         assertFalse(info.isLowResolution)
 
-        val stored = dirs.data.resolve("custom/OP09/OP09-001.jpg")
-        val storedImage = ImageIO.read(stored.toFile())
-        assertEquals(480 to 671, storedImage.width to storedImage.height)
-        assertEquals(480 to 671, assertNotNull(art.customPreview(jpgCard)).let { it.width to it.height })
-        assertTrue(dirs.data.resolve("custom/OP09/OP09-001_small.jpg").exists(), "thumbnail made too")
+        val stored = dirs.data.resolve("custom/OP09/OP09-001_custom.jpg")
+        assertEquals(480 to 671, ImageIO.read(stored.toFile()).let { it.width to it.height })
+        assertTrue(dirs.data.resolve("custom/OP09/OP09-001_custom_small.jpg").exists(), "thumbnail made too")
+        assertEquals(480, added.preview?.width)
 
-        val custom = CustomArt.variantFor(jpgCard)
-        art.apply(cards.toString(), jpgCard, custom)
+        art.apply(cards.toString(), jpgCard, added.variant)
         assertContentEquals(stored.readBytes(), sim(jpgCard).jpg.readBytes())
         assertContentEquals(stockJpg, backup(jpgCard).jpg.readBytes())
         assertEquals("OP09-001_custom", art.appliedVariant(jpgCard.id))
 
         // After a sim update, reapply works from the stored custom files.
         sim(jpgCard).jpg.writeBytes(byteArrayOf(7, 7, 7))
-        assertEquals(ReapplyOutcome.Reapplied, art.reapply(cards.toString(), jpgCard, custom))
+        assertEquals(ReapplyOutcome.Reapplied, art.reapply(cards.toString(), jpgCard, CustomArt.resolve(jpgCard, "OP09-001_custom")!!))
         assertContentEquals(stored.readBytes(), sim(jpgCard).jpg.readBytes())
     }
 
     @Test
+    fun aCardCanHaveSeveralCustomImages() = runTest {
+        val first = art.addCustomImage(jpgCard, image("1.png", color = Color.RED)).first
+        val second = art.addCustomImage(jpgCard, image("2.jpg", format = "jpg", color = Color.BLUE)).first
+        val third = art.addCustomImage(jpgCard, image("3.png", color = Color.GREEN)).first
+        assertEquals(listOf("OP09-001_custom", "OP09-001_custom2", "OP09-001_custom3"), listOf(first, second, third).map { it.variant.id })
+        assertEquals(listOf("OP09-001_custom", "OP09-001_custom2", "OP09-001_custom3"), art.customImages(jpgCard).map { it.variant.id })
+        assertTrue(art.customImages(pngCard).isEmpty(), "images belong to their card")
+
+        art.apply(cards.toString(), jpgCard, second.variant)
+        val pixel = Color(ImageIO.read(sim(jpgCard).jpg.toFile()).getRGB(240, 335))
+        assertTrue(pixel.blue > 200 && pixel.red < 60, "the second (blue) image is in the sim, got $pixel")
+
+        // Removing one keeps the rest, and new images never reuse a taken number.
+        art.removeCustomImage(jpgCard, first.variant.id)
+        assertEquals(listOf("OP09-001_custom2", "OP09-001_custom3"), art.customImages(jpgCard).map { it.variant.id })
+        assertEquals("OP09-001_custom4", art.addCustomImage(jpgCard, image("4.png")).first.variant.id)
+    }
+
+    @Test
+    fun replacingKeepsTheIdAndChangesThePicture() = runTest {
+        val id = art.addCustomImage(jpgCard, image("red.png", color = Color.RED)).first.variant.id
+        val (replaced, _) = art.replaceCustomImage(jpgCard, id, image("blue.png", color = Color.BLUE))
+        assertEquals(id, replaced.variant.id)
+        val pixel = Color(ImageIO.read(dirs.data.resolve("custom/OP09/$id.jpg").toFile()).getRGB(240, 335))
+        assertTrue(pixel.blue > 200 && pixel.red < 60, "now blue, got $pixel")
+        assertEquals(1, art.customImages(jpgCard).size)
+    }
+
+    @Test
+    fun customImageFromTheSingleImageVersionIsKept() = runTest {
+        // The previous version stored one image per card as custom/<SET>/<ID>.jpg.
+        val dir = dirs.data.resolve("custom/OP09").also { it.createDirectories() }
+        dir.resolve("OP09-001.jpg").writeBytes(encoded(Color.RED, 480, 671, "jpg"))
+        dir.resolve("OP09-001_small.jpg").writeBytes(encoded(Color.RED, 120, 167, "jpg"))
+
+        assertEquals(listOf("OP09-001_custom"), art.customImages(jpgCard).map { it.variant.id })
+        assertTrue(dir.resolve("OP09-001_custom.jpg").exists())
+        assertFalse(dir.resolve("OP09-001.jpg").exists())
+        art.apply(cards.toString(), jpgCard, CustomArt.variant("OP09-001_custom")) // a saved selection still applies
+    }
+
+    @Test
     fun jpgCustomImagesWorkAndSmallOnesAreFlagged() = runTest {
-        val source = root.resolve("small.JPG").also { it.writeBytes(encoded(Color.ORANGE, 240, 335, "jpg")) }
-        assertTrue(art.setCustomImage(pngCard, source.toString()).isLowResolution)
-        assertNotNull(art.customPreview(pngCard))
+        val (_, info) = art.addCustomImage(pngCard, image("small.JPG", width = 240, height = 335, format = "jpg"))
+        assertTrue(info.isLowResolution)
+        assertEquals(1, art.customImages(pngCard).size)
     }
 
     @Test
     fun unsupportedOrBrokenFilesAreRejected() = runTest {
         val gif = root.resolve("art.gif").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
-        assertTrue(assertFailsWith<IllegalStateException> { art.setCustomImage(jpgCard, gif.toString()) }.message!!.contains("only JPG and PNG"))
+        assertTrue(assertFailsWith<IllegalStateException> { art.addCustomImage(jpgCard, gif.toString()) }.message!!.contains("only JPG, PNG and WebP"))
         val fake = root.resolve("art.png").also { it.writeBytes("not really a png".encodeToByteArray()) }
-        assertTrue(assertFailsWith<IllegalStateException> { art.setCustomImage(jpgCard, fake.toString()) }.message!!.contains("isn't a readable"))
-        assertNull(art.customPreview(jpgCard))
+        assertTrue(assertFailsWith<IllegalStateException> { art.addCustomImage(jpgCard, fake.toString()) }.message!!.contains("isn't a readable"))
+        assertTrue(art.customImages(jpgCard).isEmpty())
     }
 
     @Test
-    fun removedOrMissingCustomImageCantBeApplied() = runTest {
-        val source = root.resolve("a.png").also { it.writeBytes(encoded(Color.ORANGE, 600, 838, "png")) }
-        art.setCustomImage(jpgCard, source.toString())
-        art.removeCustomImage(jpgCard)
-        assertNull(art.customPreview(jpgCard))
-        val error = assertFailsWith<IllegalStateException> { art.apply(cards.toString(), jpgCard, CustomArt.variantFor(jpgCard)) }
+    fun removedCustomImageCantBeApplied() = runTest {
+        val variant = art.addCustomImage(jpgCard, image("a.png")).first.variant
+        art.removeCustomImage(jpgCard, variant.id)
+        val error = assertFailsWith<IllegalStateException> { art.apply(cards.toString(), jpgCard, variant) }
         assertTrue(error.message!!.contains("custom image is missing"), error.message)
         assertContentEquals(stockJpg, sim(jpgCard).jpg.readBytes())
+    }
+
+    @Test
+    fun imageDroppedFromABrowserIsDownloadedAndConverted() = runTest {
+        // Browser drops arrive as the image's address, often without a file extension.
+        val (image, info) = art.addCustomImage(jpgCard, "https://images.example/art?id=42")
+        assertEquals("OP09-001_custom", image.variant.id)
+        assertEquals(600 to 838, info.width to info.height)
+        assertEquals(480 to 671, ImageIO.read(dirs.data.resolve("custom/OP09/OP09-001_custom.jpg").toFile()).let { it.width to it.height })
+    }
+
+    /** A real WebP file, made with Skia (the same library that decodes them in the app). */
+    private fun webp(width: Int, height: Int, lossless: Boolean = false): ByteArray {
+        val bitmap = org.jetbrains.skia.Bitmap().apply {
+            allocPixels(org.jetbrains.skia.ImageInfo.makeN32Premul(width, height))
+            erase(0xFF2266CC.toInt())
+        }
+        return org.jetbrains.skia.Image.makeFromBitmap(bitmap)
+            .encodeToData(org.jetbrains.skia.EncodedImageFormat.WEBP, if (lossless) 100 else 80)!!.bytes
+    }
+
+    @Test
+    fun webpFilesAreConvertedLikeAnyOtherImage() = runTest {
+        val file = root.resolve("art.webp").also { it.writeBytes(webp(900, 1260)) }
+        val (image, info) = art.addCustomImage(jpgCard, file.toString())
+        assertEquals(900 to 1260, info.width to info.height)
+        val stored = ImageIO.read(dirs.data.resolve("custom/OP09/${image.variant.id}.jpg").toFile())
+        assertEquals(480 to 671, stored.width to stored.height)
+        val pixel = Color(stored.getRGB(240, 335))
+        assertTrue(pixel.blue > 170 && pixel.red < 80, "kept its colour through the conversion, got $pixel")
+
+        val lossless = root.resolve("lossless.WEBP").also { it.writeBytes(webp(480, 671, lossless = true)) }
+        assertEquals(480 to 671, art.addCustomImage(jpgCard, lossless.toString()).second.let { it.width to it.height })
+    }
+
+    @Test
+    fun webpImagesDroppedFromABrowserAreDownloadedAndConverted() = runTest {
+        // Many sites serve WebP; the address often has no extension at all.
+        val webpHttp = HttpClient(MockEngine { respond(webp(600, 838), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/webp")) })
+        val webpArt = FileCardArt(dirs, converter, webpHttp)
+        val (_, info) = webpArt.addCustomImage(jpgCard, "https://cdn.example/img/12345")
+        assertEquals(600 to 838, info.width to info.height)
+    }
+
+    @Test
+    fun brokenWebpIsRejectedClearly() = runTest {
+        // A RIFF/WEBP header with garbage after it.
+        val bytes = "RIFF\u0000\u0000\u0000\u0000WEBPgarbage!".encodeToByteArray()
+        val file = root.resolve("broken.webp").also { it.writeBytes(bytes) }
+        val error = assertFailsWith<IllegalStateException> { art.addCustomImage(jpgCard, file.toString()) }
+        assertTrue(error.message!!.contains("WebP image couldn't be read"), error.message)
+    }
+
+    @Test
+    fun inlineDataImagesFromABrowserWork() = runTest {
+        val base64 = java.util.Base64.getEncoder().encodeToString(encoded(Color.BLUE, 300, 420, "png"))
+        val (_, info) = art.addCustomImage(jpgCard, "data:image/png;base64,$base64")
+        assertEquals(300 to 420, info.width to info.height)
+    }
+
+    @Test
+    fun linksToPagesOrMissingImagesAreRejectedClearly() = runTest {
+        assertTrue(assertFailsWith<IllegalStateException> { art.addCustomImage(jpgCard, "https://site.example/page") }.message!!.contains("web page, not an image"))
+        assertTrue(assertFailsWith<IllegalStateException> { art.addCustomImage(jpgCard, "https://site.example/missing.png") }.message!!.contains("HTTP 404"))
+        assertTrue(art.customImages(jpgCard).isEmpty())
     }
 
     @Test

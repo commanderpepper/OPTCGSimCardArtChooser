@@ -13,6 +13,13 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.readRawBytes
+import io.ktor.http.contentLength
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,8 +34,9 @@ import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
-import kotlin.io.path.extension
+import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readBytes
 import kotlin.io.path.readText
@@ -37,7 +45,7 @@ import kotlin.io.path.writeText
 /**
  * Swaps card art on disk. For card `OP01-001` in a sim whose cards live at `<Cards>`:
  * - converted art: `<data>/converted/OP01/<variantId>.jpg` + `_small.jpg` (made on demand);
- * - the user's own image: `<data>/custom/OP01/OP01-001.jpg` + `_small.jpg` (one per card);
+ * - the user's own images: `<data>/custom/OP01/OP01-001_custom.jpg`, `OP01-001_custom2.jpg`, … each with `_small.jpg`;
  * - applied art: written to `<Cards>/OP01/OP01-001.jpg` + `OP01-001_small.jpg`. The sim prefers
  *   `<ID>.jpg` over `<ID>.png`, so this wins whichever format the stock art uses; a stock
  *   `<ID>.png` is left untouched;
@@ -51,7 +59,13 @@ import kotlin.io.path.writeText
 class FileCardArt(
     private val dirs: AppDirectories,
     private val converter: SetConverter,
+    /** For images dropped from a browser, which arrive as web addresses. */
+    private val http: HttpClient,
 ) : CardArt {
+
+    private companion object {
+        const val MAX_DOWNLOAD_BYTES = 25_000_000
+    }
 
     private val selectionsFile: Path get() = dirs.data.resolve("selections.json")
     private val mutex = Mutex()
@@ -71,7 +85,8 @@ class FileCardArt(
      */
     private suspend fun artFiles(card: Card, variant: Variant): Pair<Path, Path> {
         if (CustomArt.isCustom(variant)) {
-            val files = customFiles(card)
+            migrateLegacyCustomImage(card)
+            val files = customFiles(card, variant.id)
             if (!files.first.isRegularFile() || !files.second.isRegularFile()) {
                 error("the custom image is missing; choose the image again")
             }
@@ -84,37 +99,116 @@ class FileCardArt(
         return converter.convertedFiles(card.setId, variant.id)
     }
 
-    private fun customFiles(card: Card): Pair<Path, Path> =
-        dirs.data.resolve("custom").resolve(card.setId).let { it.resolve("${card.id}.jpg") to it.resolve("${card.id}_small.jpg") }
+    private fun customDir(card: Card): Path = dirs.data.resolve("custom").resolve(card.setId)
 
-    override suspend fun setCustomImage(card: Card, sourcePath: String): CustomImageInfo = mutex.withLock {
-        val source = Path(sourcePath)
-        val extension = source.extension.lowercase()
-        if (extension !in CustomArt.ACCEPTED_EXTENSIONS) error("only JPG and PNG images are supported")
-        withContext(Dispatchers.IO) {
-            val bytes = try {
-                source.readBytes()
-            } catch (e: Exception) {
-                error("the file couldn't be read (${e.message})")
-            }
-            val decoded = try {
-                SimCardImages.decode(bytes)
-            } catch (_: IllegalArgumentException) {
-                error("that file isn't a readable JPG or PNG image")
-            }
-            val images = SimCardImages.render(bytes)
-            val (full, small) = customFiles(card)
-            full.parent.createDirectories()
-            writeAtomically(full, images.fullJpg)
-            writeAtomically(small, images.smallJpg)
-            CustomImageInfo(decoded.width, decoded.height)
+    /** `custom/<SET>/<variantId>.jpg` and `<variantId>_small.jpg`. */
+    private fun customFiles(card: Card, variantId: String): Pair<Path, Path> =
+        customDir(card).let { it.resolve("$variantId.jpg") to it.resolve("${variantId}_small.jpg") }
+
+    /** The first version stored one image per card as `custom/<SET>/<cardId>.jpg`; rename it. */
+    private fun migrateLegacyCustomImage(card: Card) {
+        val dir = customDir(card)
+        val legacy = dir.resolve("${card.id}.jpg") to dir.resolve("${card.id}_small.jpg")
+        val current = customFiles(card, CustomArt.variantId(card.id))
+        if (legacy.first.isRegularFile() && !current.first.exists()) {
+            Files.move(legacy.first, current.first)
+            if (legacy.second.isRegularFile()) Files.move(legacy.second, current.second)
         }
     }
 
-    override suspend fun customPreview(card: Card): ImageBitmap? = decode(customFiles(card).first)
+    private fun customVariantIds(card: Card): List<String> {
+        migrateLegacyCustomImage(card)
+        val dir = customDir(card)
+        if (!dir.isDirectory()) return emptyList()
+        return dir.listDirectoryEntries("${card.id}_custom*.jpg")
+            .map { it.name.removeSuffix(".jpg") }
+            .filter { CustomArt.isCustomId(it) && CustomArt.resolve(card, it) != null }
+            .sortedBy(CustomArt::number)
+    }
 
-    override suspend fun removeCustomImage(card: Card) = mutex.withLock {
-        withContext(Dispatchers.IO) { customFiles(card).toList().forEach { it.deleteIfExists() } }
+    override suspend fun customImages(card: Card): List<CustomImage> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            customVariantIds(card).map { id -> CustomImage(CustomArt.variant(id), decode(customFiles(card, id).first)) }
+        }
+    }
+
+    override suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo> {
+        val bytes = readImageSource(sourcePath) // may download: outside the lock
+        return mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val next = (customVariantIds(card).maxOfOrNull(CustomArt::number) ?: 0) + 1
+                storeCustomImage(card, CustomArt.variantId(card.id, next), bytes)
+            }
+        }
+    }
+
+    override suspend fun replaceCustomImage(card: Card, variantId: String, sourcePath: String): Pair<CustomImage, CustomImageInfo> {
+        require(CustomArt.resolve(card, variantId)?.let(CustomArt::isCustom) == true) { "$variantId isn't a custom image of ${card.id}" }
+        val bytes = readImageSource(sourcePath)
+        return mutex.withLock { withContext(Dispatchers.IO) { storeCustomImage(card, variantId, bytes) } }
+    }
+
+    /**
+     * The image bytes behind [source]: a local JPG, PNG or WebP file, an image dropped from a browser
+     * (`http(s):` address, downloaded), or an inline `data:` image.
+     */
+    private suspend fun readImageSource(source: String): ByteArray = when {
+        CustomArt.isRemote(source) && source.startsWith("data:", ignoreCase = true) -> decodeDataUri(source)
+        CustomArt.isRemote(source) -> download(source)
+        else -> withContext(Dispatchers.IO) {
+            if (!CustomArt.isAcceptedFile(source)) error("only JPG, PNG and WebP images are supported")
+            try {
+                Path(source).readBytes()
+            } catch (e: Exception) {
+                error("the file couldn't be read (${e.message})")
+            }
+        }
+    }
+
+    private suspend fun download(url: String): ByteArray {
+        val response = try {
+            http.get(url)
+        } catch (e: Exception) {
+            error("the image couldn't be downloaded (${e.message})")
+        }
+        if (!response.status.isSuccess()) error("the image couldn't be downloaded (HTTP ${response.status.value})")
+        val type = response.contentType()?.withoutParameters()?.toString().orEmpty()
+        if (type.startsWith("text/")) error("that link is a web page, not an image")
+        val length = response.contentLength()
+        if (length != null && length > MAX_DOWNLOAD_BYTES) error("the image is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB")
+        val bytes = response.readRawBytes()
+        if (bytes.size > MAX_DOWNLOAD_BYTES) error("the image is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB")
+        return bytes
+    }
+
+    private fun decodeDataUri(uri: String): ByteArray {
+        val (header, data) = uri.substringAfter(':').split(',', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+        if (!header.endsWith(";base64", ignoreCase = true)) error("that dropped image couldn't be read")
+        return try {
+            Base64.getDecoder().decode(data.trim())
+        } catch (_: IllegalArgumentException) {
+            error("that dropped image couldn't be read")
+        }
+    }
+
+    /** Converts the image [source] bytes (JPG, PNG or WebP) into the sim's formats and saves them as [variantId]. */
+    private fun storeCustomImage(card: Card, variantId: String, source: ByteArray): Pair<CustomImage, CustomImageInfo> {
+        val bytes = WebpSupport.toConverterReadable(source)
+        val decoded = try {
+            SimCardImages.decode(bytes)
+        } catch (_: IllegalArgumentException) {
+            error("that file isn't a readable JPG, PNG or WebP image")
+        }
+        val images = SimCardImages.render(bytes)
+        val (full, small) = customFiles(card, variantId)
+        full.parent.createDirectories()
+        writeAtomically(full, images.fullJpg)
+        writeAtomically(small, images.smallJpg)
+        return CustomImage(CustomArt.variant(variantId), decodeNow(full)) to CustomImageInfo(decoded.width, decoded.height)
+    }
+
+    override suspend fun removeCustomImage(card: Card, variantId: String) = mutex.withLock {
+        withContext(Dispatchers.IO) { customFiles(card, variantId).toList().forEach { it.deleteIfExists() } }
     }
 
     private fun writeAtomically(target: Path, bytes: ByteArray) {
@@ -222,12 +316,13 @@ class FileCardArt(
 
     private fun backupFiles(card: Card) = CardFiles(dirs.backups.resolve(card.setId), card.id)
 
-    private suspend fun decode(file: Path): ImageBitmap? = withContext(Dispatchers.IO) {
-        try {
-            if (file.isRegularFile()) Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() else null
-        } catch (_: Exception) {
-            null
-        }
+    private suspend fun decode(file: Path): ImageBitmap? = withContext(Dispatchers.IO) { decodeNow(file) }
+
+    /** Null for missing, unreadable or corrupt files. Blocking: call off the UI thread. */
+    private fun decodeNow(file: Path): ImageBitmap? = try {
+        if (file.isRegularFile()) Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() else null
+    } catch (_: Exception) {
+        null
     }
 
     private val selectionsSerializer = MapSerializer(String.serializer(), String.serializer())

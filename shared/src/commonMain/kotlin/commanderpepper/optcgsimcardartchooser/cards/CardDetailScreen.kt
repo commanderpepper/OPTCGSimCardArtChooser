@@ -26,6 +26,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,9 +42,23 @@ import androidx.compose.ui.unit.dp
 /** Full card proportions (the sim's art is 480x671). */
 private val ArtSize = DpSize(180.dp, 252.dp)
 
+/** Callbacks for the user's own images on the card page. */
+class CustomImageActions(
+    /** Opens the picker to add one or more images. */
+    val onAdd: () -> Unit,
+    /** Images dropped onto the page. */
+    val onDrop: (List<String>) -> Unit,
+    /** Something was dropped but couldn't be read as images. */
+    val onDropFailed: () -> Unit,
+    /** Opens the picker to replace the custom image with this option ID. */
+    val onReplace: (optionId: String) -> Unit,
+    val onRemove: (optionId: String) -> Unit,
+)
+
 /**
  * One card's art choices. Clicking an option applies it to the sim immediately; the option in
- * use is outlined and labelled "In use".
+ * use is outlined and labelled "In use". JPG, PNG or WebP files dropped anywhere on the page are added as
+ * custom images.
  */
 @Composable
 fun CardDetailScreen(
@@ -48,12 +66,32 @@ fun CardDetailScreen(
     onSelect: (optionId: String) -> Unit,
     onDismissMessage: () -> Unit,
     onBack: () -> Unit,
-    /** Opens the image picker; used both to add and to replace the custom image. */
-    onChooseCustomImage: () -> Unit,
-    onRemoveCustomImage: () -> Unit,
+    customImages: CustomImageActions,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    var dropHover by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier.fillMaxSize().fileDropTarget(
+            enabled = state.card != null && state.isIdle,
+            onHoverChange = { dropHover = it },
+            onDrop = customImages.onDrop,
+            onDropFailed = customImages.onDropFailed,
+        ),
+    ) {
+        CardDetailContent(state, onSelect, onDismissMessage, onBack, customImages)
+        if (dropHover) DropOverlay()
+    }
+}
+
+@Composable
+private fun CardDetailContent(
+    state: CardDetailState,
+    onSelect: (optionId: String) -> Unit,
+    onDismissMessage: () -> Unit,
+    onBack: () -> Unit,
+    customImages: CustomImageActions,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onBack) { Text("← Back") }
             val card = state.card
@@ -84,23 +122,28 @@ fun CardDetailScreen(
                             option = option,
                             isApplied = option.id == state.appliedId,
                             isApplying = option.id == state.applyingId,
-                            enabled = state.canApply && state.applyingId == null && option.image !is ArtImage.Unavailable,
+                            enabled = state.canApply && state.isIdle && option.image !is ArtImage.Unavailable,
                             onClick = { onSelect(option.id) },
                             customActions = if (option.isCustom) {
-                                { CustomImageActions(state.applyingId == null, onChooseCustomImage, onRemoveCustomImage) }
+                                {
+                                    CustomImageTileActions(
+                                        enabled = state.isIdle,
+                                        onReplace = { customImages.onReplace(option.id) },
+                                        onRemove = { customImages.onRemove(option.id) },
+                                    )
+                                }
                             } else {
                                 null
                             },
                         )
                     }
-                    if (state.canAddCustomImage) {
-                        item(key = "add-custom") {
-                            AddCustomImageTile(
-                                isWorking = state.applyingId != null && state.options.none { it.id == state.applyingId },
-                                enabled = state.applyingId == null,
-                                onClick = onChooseCustomImage,
-                            )
-                        }
+                    item(key = "add-custom") {
+                        AddCustomImageTile(
+                            hasCustomImages = state.hasCustomImages,
+                            isWorking = state.isAddingImages,
+                            enabled = state.isIdle,
+                            onClick = customImages.onAdd,
+                        )
                     }
                 }
             }
@@ -167,16 +210,34 @@ private fun ArtOptionTile(
 }
 
 @Composable
-private fun CustomImageActions(enabled: Boolean, onReplace: () -> Unit, onRemove: () -> Unit) {
+private fun CustomImageTileActions(enabled: Boolean, onReplace: () -> Unit, onRemove: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         TextButton(onClick = onReplace, enabled = enabled) { Text("Replace…") }
         TextButton(onClick = onRemove, enabled = enabled) { Text("Remove") }
     }
 }
 
-/** Dashed-style tile for adding the user's own image. */
+/** Shown while files are dragged over the page. */
 @Composable
-private fun AddCustomImageTile(isWorking: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun DropOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f), RoundedCornerShape(16.dp))
+            .border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Drop JPG, PNG or WebP images to add them", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text("Each one becomes a custom art option for this card.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+/** Dashed-style tile for adding the user's own images. */
+@Composable
+private fun AddCustomImageTile(hasCustomImages: Boolean, isWorking: Boolean, enabled: Boolean, onClick: () -> Unit) {
     OutlinedCard(onClick = onClick, enabled = enabled) {
         Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
@@ -191,8 +252,9 @@ private fun AddCustomImageTile(isWorking: Boolean, enabled: Boolean, onClick: ()
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("+", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
-                        Text("Use your own image", style = MaterialTheme.typography.titleSmall)
-                        Text("JPG or PNG", style = MaterialTheme.typography.bodySmall)
+                        Text(if (hasCustomImages) "Add another image" else "Use your own image", style = MaterialTheme.typography.titleSmall)
+                        Text("JPG, PNG or WebP", style = MaterialTheme.typography.bodySmall)
+                        Text("or drop images on this page", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

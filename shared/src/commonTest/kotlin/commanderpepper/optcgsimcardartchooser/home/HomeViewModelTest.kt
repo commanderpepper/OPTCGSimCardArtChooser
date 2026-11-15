@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import commanderpepper.optcgsimcardartchooser.cards.CardArt
 import commanderpepper.optcgsimcardartchooser.cards.CatalogRepository
 import commanderpepper.optcgsimcardartchooser.cards.CustomImageInfo
+import commanderpepper.optcgsimcardartchooser.cards.CustomImage
 import commanderpepper.optcgsimcardartchooser.cards.ReapplyOutcome
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
 import commanderpepper.optcgsimcardartchooser.catalog.model.CardSet
@@ -58,9 +59,10 @@ class HomeViewModelTest {
         override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
         override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = Unit
         override suspend fun restoreOriginal(cardsPath: String, card: Card) = Unit
-        override suspend fun setCustomImage(card: Card, sourcePath: String) = CustomImageInfo(480, 671)
-        override suspend fun customPreview(card: Card): ImageBitmap? = null
-        override suspend fun removeCustomImage(card: Card) = Unit
+        override suspend fun customImages(card: Card) = emptyList<CustomImage>()
+        override suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo> = error("unused")
+        override suspend fun replaceCustomImage(card: Card, variantId: String, sourcePath: String): Pair<CustomImage, CustomImageInfo> = error("unused")
+        override suspend fun removeCustomImage(card: Card, variantId: String) = Unit
     }
 
     private class FakeStore(private val saved: String?) : SimFolderStore {

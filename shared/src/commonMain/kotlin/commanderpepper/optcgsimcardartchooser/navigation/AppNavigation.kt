@@ -17,6 +17,7 @@ import commanderpepper.optcgsimcardartchooser.cards.CardBrowserScreen
 import commanderpepper.optcgsimcardartchooser.cards.CardBrowserViewModel
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailScreen
 import commanderpepper.optcgsimcardartchooser.cards.CardDetailViewModel
+import commanderpepper.optcgsimcardartchooser.cards.CustomImageActions
 import commanderpepper.optcgsimcardartchooser.cards.DeckListActions
 import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
 import dev.zacsweers.metrox.viewmodel.assistedMetroViewModel
@@ -108,8 +109,15 @@ fun AppNavigation(
                     onSelect = viewModel::select,
                     onDismissMessage = viewModel::dismissMessage,
                     onBack = { backStack.removeLastOrNull() },
-                    onChooseCustomImage = { viewModel.useCustomImage(imagePicker.pick()) },
-                    onRemoveCustomImage = viewModel::removeCustomImage,
+                    customImages = remember(viewModel) {
+                        CustomImageActions(
+                            onAdd = { viewModel.addCustomImages(imagePicker.pick()) },
+                            onDrop = viewModel::addCustomImages,
+                            onDropFailed = viewModel::reportUnreadableDrop,
+                            onReplace = { optionId -> viewModel.replaceCustomImage(optionId, imagePicker.pick().firstOrNull()) },
+                            onRemove = viewModel::removeCustomImage,
+                        )
+                    },
                 )
             }
         },

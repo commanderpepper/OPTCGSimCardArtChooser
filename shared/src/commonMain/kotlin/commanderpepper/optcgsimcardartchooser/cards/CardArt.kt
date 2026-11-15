@@ -35,18 +35,20 @@ interface CardArt {
      */
     suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome
 
+    /** [card]'s custom images, oldest first. */
+    suspend fun customImages(card: Card): List<CustomImage>
+
     /**
-     * Converts the image at [sourcePath] (JPG or PNG) into [card]'s custom art, replacing any
-     * previous one. Apply it with [CustomArt.variantFor]. Throws with a readable message for
-     * unsupported or unreadable files.
+     * Converts the image at [sourcePath] (JPG, PNG or WebP) into a new custom image for [card].
+     * Throws with a readable message for unsupported or unreadable files.
      */
-    suspend fun setCustomImage(card: Card, sourcePath: String): CustomImageInfo
+    suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo>
 
-    /** [card]'s custom art, or null if it has none. */
-    suspend fun customPreview(card: Card): ImageBitmap?
+    /** Converts [sourcePath] into the existing custom image [variantId], replacing its picture. */
+    suspend fun replaceCustomImage(card: Card, variantId: String, sourcePath: String): Pair<CustomImage, CustomImageInfo>
 
-    /** Deletes [card]'s custom art. Doesn't touch the sim; restore the original first if it's in use. */
-    suspend fun removeCustomImage(card: Card)
+    /** Deletes one custom image. Doesn't touch the sim; restore the original first if it's in use. */
+    suspend fun removeCustomImage(card: Card, variantId: String)
 }
 
 enum class ReapplyOutcome {

@@ -53,9 +53,13 @@ data class CardDetailState(
     /** False when no verified sim folder exists, so nothing can be applied. */
     val canApply: Boolean = true,
     val message: String? = null,
+    /** Custom images being converted after a pick or drop. */
+    val isAddingImages: Boolean = false,
 ) {
-    /** The card has no custom image yet, so the "use your own image" tile is shown. */
-    val canAddCustomImage: Boolean get() = card != null && options.none { it.isCustom }
+    val hasCustomImages: Boolean get() = options.any { it.isCustom }
+
+    /** Nothing is being applied or added, so new actions can start. */
+    val isIdle: Boolean get() = applyingId == null && !isAddingImages
 
     companion object {
         const val ORIGINAL_ID = "original"
@@ -96,7 +100,7 @@ class CardDetailViewModel(
         val card = current.card ?: return
         val option = current.options.firstOrNull { it.id == optionId } ?: return
         val path = cardsPath
-        if (path == null || current.applyingId != null || optionId == current.appliedId) return
+        if (path == null || !current.isIdle || optionId == current.appliedId) return
         if (option.image is ArtImage.Unavailable) return
 
         _state.update { it.copy(applyingId = optionId, message = null) }
@@ -117,35 +121,96 @@ class CardDetailViewModel(
     }
 
     /**
-     * Converts the image at [path] into this card's custom art (replacing any previous one) and
-     * applies it, since picking an image means wanting to use it. Null [path] = picker cancelled.
+     * Adds picked or dropped images as new custom images. A single image is applied right away
+     * (picking one image means wanting to use it); several are just added to choose from.
+     * Files that aren't JPG, PNG or WebP, or can't be read, are skipped and listed in the message.
      */
-    fun useCustomImage(path: String?) {
+    fun addCustomImages(paths: List<String>) {
         val card = _state.value.card ?: return
-        if (path == null || _state.value.applyingId != null) return
-        val variant = CustomArt.variantFor(card)
-        _state.update { it.copy(applyingId = variant.id, message = null) }
+        if (paths.isEmpty() || !_state.value.isIdle) return
+        _state.update { it.copy(isAddingImages = true, message = null) }
+        viewModelScope.launch {
+            val added = mutableListOf<Pair<CustomImage, CustomImageInfo>>()
+            val problems = mutableListOf<String>()
+            try {
+                for (path in paths) {
+                    val name = CustomArt.displayName(path)
+                    // Browser drops arrive as web addresses, often without a file extension; the download is checked instead.
+                    if (!CustomArt.isRemote(path) && !CustomArt.isAcceptedFile(path)) {
+                        problems += "$name (not a JPG, PNG or WebP)"
+                        continue
+                    }
+                    try {
+                        val result = art.addCustomImage(card, path)
+                        added += result
+                        _state.update { s -> s.copy(options = s.options + customOption(result.first)) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        problems += "$name (${e.message ?: "unknown error"})"
+                    }
+                }
+
+                val single = added.singleOrNull()
+                val simCards = cardsPath
+                val outcome = when {
+                    added.isEmpty() -> null
+                    single != null && simCards != null -> {
+                        art.apply(simCards, card, single.first.variant)
+                        thumbnails.invalidate(card.id)
+                        _state.update { it.copy(appliedId = single.first.variant.id) }
+                        "Your image is now used in the sim."
+                    }
+                    single != null -> "Saved your image. Verify the OPTCGSim folder to apply it."
+                    else -> "Added ${added.size} images. Click one to use it."
+                }
+                val lowRes = added.filter { it.second.isLowResolution }
+                val notes = buildList {
+                    outcome?.let(::add)
+                    if (lowRes.size == 1 && single != null) {
+                        val info = lowRes.single().second
+                        add("It's ${info.width}×${info.height}, smaller than the sim's 480×671, so it may look soft.")
+                    } else if (lowRes.isNotEmpty()) {
+                        add("${lowRes.size} of them are smaller than the sim's 480×671 and may look soft.")
+                    }
+                    if (problems.isNotEmpty()) add("Skipped ${problems.joinToString("; ")}.")
+                }
+                _state.update { it.copy(message = notes.joinToString(" ").ifBlank { null }) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "Couldn't use that image: ${e.message ?: "unknown error"}") }
+            } finally {
+                _state.update { it.copy(isAddingImages = false) }
+            }
+        }
+    }
+
+    /** Something was dropped on the page that couldn't be read as images. */
+    fun reportUnreadableDrop() = _state.update {
+        it.copy(
+            message = "Couldn't read what was dropped. Images inside zip files, emails or some apps can't be dropped " +
+                "directly; drag the image files from File Explorer, or use Add another image.",
+        )
+    }
+
+    /** Swaps the picture of custom image [optionId]; if it's in use, the sim is updated too. */
+    fun replaceCustomImage(optionId: String, path: String?) {
+        val current = _state.value
+        val card = current.card ?: return
+        if (path == null || !current.isIdle || current.options.none { it.id == optionId && it.isCustom }) return
+        _state.update { it.copy(applyingId = optionId, message = null) }
         viewModelScope.launch {
             try {
-                val info = art.setCustomImage(card, path)
-                val option = ArtOption(variant.id, CustomArt.LABEL, "Your own image", variant, art.customPreview(card).toArtImage())
-                _state.update { s ->
-                    val others = s.options.filterNot { it.isCustom }
-                    s.copy(options = others + option)
-                }
-                val blurryNote = if (info.isLowResolution) {
-                    " It's ${info.width}×${info.height}, smaller than the sim's 480×671, so it may look soft."
-                } else {
-                    ""
-                }
+                val (image, info) = art.replaceCustomImage(card, optionId, path)
+                _state.update { s -> s.copy(options = s.options.map { if (it.id == optionId) customOption(image) else it }) }
                 val simCards = cardsPath
-                if (simCards == null) {
-                    _state.update { it.copy(message = "Saved your image. Verify the OPTCGSim folder to apply it.$blurryNote") }
-                } else {
-                    art.apply(simCards, card, variant)
+                if (current.appliedId == optionId && simCards != null) {
+                    art.apply(simCards, card, image.variant)
                     thumbnails.invalidate(card.id)
-                    _state.update { it.copy(appliedId = variant.id, message = "Your image is now used in the sim.$blurryNote") }
                 }
+                val note = if (info.isLowResolution) " It's ${info.width}×${info.height}, smaller than the sim's 480×671, so it may look soft." else ""
+                _state.update { it.copy(message = "Replaced ${image.variant.let { v -> CustomArt.label(v.id) }}.$note") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -156,22 +221,21 @@ class CardDetailViewModel(
         }
     }
 
-    /** Deletes this card's custom image, putting the sim original back first if it's in use. */
-    fun removeCustomImage() {
+    /** Deletes custom image [optionId], putting the sim original back first if it's in use. */
+    fun removeCustomImage(optionId: String) {
         val current = _state.value
         val card = current.card ?: return
-        if (current.applyingId != null) return
-        val customId = CustomArt.variantId(card.id)
+        if (!current.isIdle || current.options.none { it.id == optionId && it.isCustom }) return
         viewModelScope.launch {
             try {
                 val simCards = cardsPath
-                if (current.appliedId == customId && simCards != null) {
+                if (current.appliedId == optionId && simCards != null) {
                     art.restoreOriginal(simCards, card)
                     thumbnails.invalidate(card.id)
                     _state.update { it.copy(appliedId = CardDetailState.ORIGINAL_ID) }
                 }
-                art.removeCustomImage(card)
-                _state.update { s -> s.copy(options = s.options.filterNot { it.isCustom }, message = "Removed your image.") }
+                art.removeCustomImage(card, optionId)
+                _state.update { s -> s.copy(options = s.options.filterNot { it.id == optionId }, message = "Removed ${CustomArt.label(optionId)}.") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -179,6 +243,9 @@ class CardDetailViewModel(
             }
         }
     }
+
+    private fun customOption(image: CustomImage) =
+        ArtOption(image.variant.id, CustomArt.label(image.variant.id), "Your own image", image.variant, image.preview.toArtImage())
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
@@ -202,12 +269,8 @@ class CardDetailViewModel(
         val variants = card.variants.filter(ConversionScope::includes).map { variant ->
             ArtOption(variant.id, titleFor(variant), variant.tags.joinToString(" · ").ifBlank { null }, variant)
         }
-        val customImage = art.customPreview(card)
-        val custom = customImage?.let {
-            val variant = CustomArt.variantFor(card)
-            ArtOption(variant.id, CustomArt.LABEL, "Your own image", variant, ArtImage.Loaded(it))
-        }
-        val options = listOf(original) + variants + listOfNotNull(custom)
+        val custom = art.customImages(card).map(::customOption)
+        val options = listOf(original) + variants + custom
         val applied = art.appliedVariant(card.id)?.takeIf { id -> options.any { it.id == id } } ?: CardDetailState.ORIGINAL_ID
         _state.update { it.copy(isLoading = false, card = card, options = options, appliedId = applied) }
 
