@@ -34,7 +34,10 @@ compose.desktop {
             // java.desktop (Swing/AWT pickers) is included by default; Preferences needs java.prefs.
             modules("java.prefs")
 
+            // App icons (installer, shortcuts, app bundle); made from one picture, see icons/README.md.
+            linux { iconFile.set(project.file("icons/app.png")) }
             windows {
+                iconFile.set(project.file("icons/app.ico"))
                 menuGroup = "OPTCGSim Card Art Chooser"
                 perUserInstall = true
                 dirChooser = true
@@ -43,6 +46,7 @@ compose.desktop {
                 upgradeUuid = "162323e9-f469-4308-a331-cb59ad8d2e14"
             }
             macOS {
+                iconFile.set(project.file("icons/app.icns"))
                 bundleID = "commanderpepper.optcgsimcardartchooser"
             }
         }
