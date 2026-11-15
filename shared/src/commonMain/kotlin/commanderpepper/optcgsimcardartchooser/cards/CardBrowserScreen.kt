@@ -1,6 +1,8 @@
 package commanderpepper.optcgsimcardartchooser.cards
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,6 +71,7 @@ fun CardBrowserScreen(
     onCardSelected: (cardId: String) -> Unit,
     /** Long press or right-click on a card: open the quick-swap window. */
     onCardLongPressed: (cardId: String) -> Unit,
+    selection: SelectionActions,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -84,30 +87,38 @@ fun CardBrowserScreen(
                 Button(onClick = onRetry) { Text("Retry") }
             }
             else -> {
-                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleTrait, onToggleArtStatus, deckActions, onClearFilters)
+                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleTrait, onToggleArtStatus, deckActions, onClearFilters, selection)
                 state.deckMessage?.let { DeckMessageBanner(it, deckActions.onDismissMessage) }
                 Text(
-                    "${state.cards.size} of ${state.totalCards} cards · right-click or long-press a card to swap its art quickly",
+                    "${state.cards.size} of ${state.totalCards} cards · right-click or long-press a card to swap its art quickly · " +
+                        "tick cards or drag a box around them to change several at once",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                SelectionBar(state, selection)
                 if (state.cards.isEmpty()) {
                     Text("No cards match these filters.", modifier = Modifier.padding(top = 24.dp))
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 280.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(state.cards, key = { it.id }) { card ->
-                            CardTile(
-                                card = card,
-                                isModified = card.id in state.modifiedCardIds,
-                                thumbnailRevision = state.thumbnailRevision,
-                                loadThumbnail = loadThumbnail,
-                                onClick = { onCardSelected(card.id) },
-                                onLongClick = { onCardLongPressed(card.id) },
-                            )
+                    // Drag across cards to box-select them; the hits are added to the selection.
+                    MarqueeSelectionArea(onSelect = selection.onSelectMany, modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 280.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(state.cards, key = { it.id }) { card ->
+                                CardTile(
+                                    card = card,
+                                    modifier = Modifier.marqueeItem(card.id),
+                                    isModified = card.id in state.modifiedCardIds,
+                                    isSelected = card.id in state.selectedCardIds || card.id in touching,
+                                    thumbnailRevision = state.thumbnailRevision,
+                                    loadThumbnail = loadThumbnail,
+                                    onClick = { onCardSelected(card.id) },
+                                    onLongClick = { onCardLongPressed(card.id) },
+                                    onToggleSelected = { selection.onToggle(card.id) },
+                                )
+                            }
                         }
                     }
                 }
@@ -127,6 +138,7 @@ private fun Filters(
     onToggleArtStatus: (ArtStatus) -> Unit,
     deckActions: DeckListActions,
     onClearFilters: () -> Unit,
+    selection: SelectionActions,
 ) {
     val filter = state.filter
     OutlinedTextField(
@@ -136,51 +148,123 @@ private fun Filters(
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
+        ) {
+            MultiSelectDropdown(
+                label = "Color",
+                sections = listOf(DropdownSection(null, CardColor.entries)),
+                selected = filter.colors,
+                optionLabel = { it.name },
+                onToggle = onToggleColor,
+            )
+            MultiSelectDropdown(
+                label = "Card type",
+                sections = listOf(DropdownSection(null, Category.entries)),
+                selected = filter.categories,
+                optionLabel = { it.name },
+                onToggle = onToggleCategory,
+            )
+            MultiSelectDropdown(
+                label = "Set",
+                sections = state.sets.groupedByProductLine().map { (group, sets) -> DropdownSection(group.label, sets.map { it.id }) },
+                selected = filter.setIds,
+                optionLabel = { id -> state.sets.firstOrNull { it.id == id }?.let { "${it.id} · ${it.name}" } ?: id },
+                summaryLabel = { it },
+                onToggle = onToggleSet,
+            )
+            MultiSelectDropdown(
+                label = "Trait",
+                sections = listOf(DropdownSection(null, state.traits)),
+                selected = filter.traits,
+                optionLabel = { it },
+                onToggle = onToggleTrait,
+                searchPlaceholder = "Search traits",
+            )
+            MultiSelectDropdown(
+                label = "Art",
+                sections = listOf(DropdownSection(null, ArtStatus.entries)),
+                selected = state.artStatuses,
+                optionLabel = { it.label },
+                onToggle = onToggleArtStatus,
+            )
+            DeckListButton(state, deckActions)
+            if (state.hasActiveFilter) {
+                TextButton(onClick = onClearFilters) { Text("Clear filters") }
+            }
+        }
+        // Right edge: select (or deselect) every card the current filters show.
+        OutlinedButton(onClick = if (state.allShownSelected) selection.onDeselectAllShown else selection.onSelectAllShown, enabled = state.cards.isNotEmpty()) {
+            Text(if (state.allShownSelected) "Deselect all" else "Select all")
+        }
+    }
+}
+
+/** Callbacks for selecting cards and changing their art in bulk. */
+class SelectionActions(
+    val onToggle: (cardId: String) -> Unit,
+    /** Cards box-selected by dragging; added to the selection. */
+    val onSelectMany: (Set<String>) -> Unit,
+    val onSelectAllShown: () -> Unit,
+    /** Removes the cards the current filters show from the selection. */
+    val onDeselectAllShown: () -> Unit,
+    val onClear: () -> Unit,
+    val onUseAltArt: () -> Unit,
+    val onUseSp: () -> Unit,
+    /** Each card's rarest art: Manga, else SP, else Alt Art. */
+    val onUseMaxRarity: () -> Unit,
+    val onRestoreOriginals: () -> Unit,
+    val onDismissMessage: () -> Unit,
+)
+
+/**
+ * Shown once cards are selected: the count, clear, and — only with two or more selected — the
+ * bulk actions ("Select all" lives at the right of the filter row). Also shows progress and the
+ * summary of the last bulk action.
+ */
+@Composable
+private fun SelectionBar(state: CardBrowserState, actions: SelectionActions) {
+    val count = state.selectedCardIds.size
+    val progress = state.bulkProgress
+    if (count == 0 && progress == null && state.bulkMessage == null) return
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
-        MultiSelectDropdown(
-            label = "Color",
-            sections = listOf(DropdownSection(null, CardColor.entries)),
-            selected = filter.colors,
-            optionLabel = { it.name },
-            onToggle = onToggleColor,
-        )
-        MultiSelectDropdown(
-            label = "Card type",
-            sections = listOf(DropdownSection(null, Category.entries)),
-            selected = filter.categories,
-            optionLabel = { it.name },
-            onToggle = onToggleCategory,
-        )
-        MultiSelectDropdown(
-            label = "Set",
-            sections = state.sets.groupedByProductLine().map { (group, sets) -> DropdownSection(group.label, sets.map { it.id }) },
-            selected = filter.setIds,
-            optionLabel = { id -> state.sets.firstOrNull { it.id == id }?.let { "${it.id} · ${it.name}" } ?: id },
-            summaryLabel = { it },
-            onToggle = onToggleSet,
-        )
-        MultiSelectDropdown(
-            label = "Trait",
-            sections = listOf(DropdownSection(null, state.traits)),
-            selected = filter.traits,
-            optionLabel = { it },
-            onToggle = onToggleTrait,
-            searchPlaceholder = "Search traits",
-        )
-        MultiSelectDropdown(
-            label = "Art",
-            sections = listOf(DropdownSection(null, ArtStatus.entries)),
-            selected = state.artStatuses,
-            optionLabel = { it.label },
-            onToggle = onToggleArtStatus,
-        )
-        DeckListButton(state, deckActions)
-        if (state.hasActiveFilter) {
-            TextButton(onClick = onClearFilters) { Text("Clear filters") }
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (progress != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("Changing art… ${progress.first} of ${progress.second}", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else if (count > 0) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("$count selected", style = MaterialTheme.typography.titleSmall)
+                    TextButton(onClick = actions.onClear) { Text("Clear selection") }
+                    if (state.canBulkChange) {
+                        Button(onClick = actions.onUseAltArt) { Text("Use alt art") }
+                        Button(onClick = actions.onUseSp) { Text("Use SP") }
+                        Button(onClick = actions.onUseMaxRarity) { Text("Use max rarity") }
+                        OutlinedButton(onClick = actions.onRestoreOriginals) { Text("Restore originals") }
+                    } else {
+                        Text("Select another card to change several at once.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            state.bulkMessage?.let { message ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = actions.onDismissMessage) { Text("OK") }
+                }
+            }
         }
     }
 }
@@ -355,24 +439,34 @@ private const val MAX_SUMMARY_ITEMS = 3
 @Composable
 private fun CardTile(
     card: Card,
+    modifier: Modifier = Modifier,
     isModified: Boolean,
+    isSelected: Boolean,
     thumbnailRevision: Int,
     loadThumbnail: suspend (Card) -> ImageBitmap?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onToggleSelected: () -> Unit,
 ) {
     val shape = CardDefaults.shape
     Card(
         shape = shape,
+        colors = if (isSelected) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors(),
         // Long press or right-click opens the quick-swap window.
-        modifier = Modifier.fillMaxWidth().clip(shape)
+        modifier = modifier.fillMaxWidth().clip(shape)
+            .then(if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
             .onSecondaryClick(onLongClick)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CardThumbnailImage(card = card, load = loadThumbnail, revision = thumbnailRevision)
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                // FlowRow: on narrow tiles the badge moves under the ID instead of being squeezed.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(card.id, style = MaterialTheme.typography.labelMedium)
                     if (isModified) {
                         Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
@@ -380,6 +474,8 @@ private fun CardTile(
                                 "Modified",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             )
                         }
@@ -397,6 +493,7 @@ private fun CardTile(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelected() })
         }
     }
 }

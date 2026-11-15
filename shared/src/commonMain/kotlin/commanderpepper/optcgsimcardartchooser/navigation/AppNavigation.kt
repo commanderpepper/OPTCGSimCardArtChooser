@@ -23,6 +23,7 @@ import commanderpepper.optcgsimcardartchooser.cards.CustomImageActions
 import commanderpepper.optcgsimcardartchooser.cards.DeckListActions
 import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
 import commanderpepper.optcgsimcardartchooser.cards.QuickArtPickerDialog
+import commanderpepper.optcgsimcardartchooser.cards.SelectionActions
 import dev.zacsweers.metrox.viewmodel.assistedMetroViewModel
 import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
@@ -106,6 +107,20 @@ fun AppNavigation(
                     loadThumbnail = viewModel::thumbnail,
                     onCardSelected = { cardId -> backStack.add(Pages.CardDetail(cardId)) },
                     onCardLongPressed = { cardId -> quickSwapCardId = cardId },
+                    selection = remember(viewModel) {
+                        SelectionActions(
+                            onToggle = viewModel::toggleSelection,
+                            onSelectMany = viewModel::selectMany,
+                            onSelectAllShown = viewModel::selectAllShown,
+                            onDeselectAllShown = viewModel::deselectAllShown,
+                            onClear = viewModel::clearSelection,
+                            onUseAltArt = viewModel::applyAltArtToSelected,
+                            onUseSp = viewModel::applySpToSelected,
+                            onUseMaxRarity = viewModel::applyMaxRarityToSelected,
+                            onRestoreOriginals = viewModel::restoreSelected,
+                            onDismissMessage = viewModel::dismissBulkMessage,
+                        )
+                    },
                 )
                 quickSwapCardId?.let { cardId ->
                     QuickArtPickerDialog(

@@ -10,6 +10,7 @@ import commanderpepper.optcgsimcardartchooser.catalog.model.CardColor
 import commanderpepper.optcgsimcardartchooser.catalog.model.CardSet
 import commanderpepper.optcgsimcardartchooser.catalog.model.Catalog
 import commanderpepper.optcgsimcardartchooser.catalog.model.Category
+import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
 import commanderpepper.optcgsimcardartchooser.simfolder.SimCardsFolder
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoMap
@@ -48,8 +49,20 @@ data class CardBrowserState(
     val traits: List<String> = emptyList(),
     /** Bumped when art may have changed (e.g. after a quick swap), so visible thumbnails reload. */
     val thumbnailRevision: Int = 0,
+    /** Cards ticked for a bulk action; can include cards hidden by the current filters. */
+    val selectedCardIds: Set<String> = emptySet(),
+    /** Set while a bulk action runs: (cards done, total). */
+    val bulkProgress: Pair<Int, Int>? = null,
+    /** Summary of the last bulk action. */
+    val bulkMessage: String? = null,
 ) {
     val hasActiveFilter: Boolean get() = filter != CardFilter() || artStatuses.isNotEmpty() || deckCardIds != null
+
+    /** Every card the current filters show is selected (so "Select all" becomes "Deselect all"). */
+    val allShownSelected: Boolean get() = cards.isNotEmpty() && cards.all { it.id in selectedCardIds }
+
+    /** Bulk actions are offered only when several cards are selected. */
+    val canBulkChange: Boolean get() = selectedCardIds.size >= 2 && bulkProgress == null
 }
 
 @Inject
@@ -140,6 +153,158 @@ class CardBrowserViewModel(
         }
     }
 
+    fun toggleSelection(cardId: String) = _state.update { it.copy(selectedCardIds = it.selectedCardIds.toggle(cardId)) }
+
+    /** Adds cards to the selection, e.g. from a box selection. */
+    fun selectMany(cardIds: Collection<String>) = _state.update { it.copy(selectedCardIds = it.selectedCardIds + cardIds) }
+
+    /** Adds every card matching the current filters to the selection. */
+    fun selectAllShown() = _state.update { s -> s.copy(selectedCardIds = s.selectedCardIds + s.cards.map { it.id }) }
+
+    /** Removes the cards the current filters show; selected cards hidden by the filters stay selected. */
+    fun deselectAllShown() = _state.update { s -> s.copy(selectedCardIds = s.selectedCardIds - s.cards.map { it.id }.toSet()) }
+
+    fun clearSelection() = _state.update { it.copy(selectedCardIds = emptySet()) }
+
+    fun dismissBulkMessage() = _state.update { it.copy(bulkMessage = null) }
+
+    /** Switches every selected card to its alt art; see [applyToSelected]. */
+    fun applyAltArtToSelected() = applyToSelected(ArtTier.AltArt.label) { bulkTarget(it, ArtTier.AltArt) }
+
+    /** Switches every selected card to its SP; see [applyToSelected]. */
+    fun applySpToSelected() = applyToSelected(ArtTier.SP.label) { bulkTarget(it, ArtTier.SP) }
+
+    /** Switches every selected card to the rarest art it has (Manga, else SP, else Alt Art); see [applyToSelected]. */
+    fun applyMaxRarityToSelected() = applyToSelected("max rarity", missingLabel = "alt art, SP or manga art", target = ::maxRarityTarget)
+
+    /**
+     * Switches every selected card to its [target] art, never moving a card down the rarity order
+     * Manga > SP > Alt Art > Regular: a card already showing a rarer art keeps it, and one already
+     * showing an art of the same tier keeps that specific choice. Cards without a target, and
+     * cards using one of the user's own images, are skipped; every group is listed in the summary.
+     */
+    private fun applyToSelected(
+        label: String,
+        missingLabel: String = label,
+        target: (Card) -> Variant?,
+    ) = runBulk("Applying $label") { path, cards, applied ->
+        val changed = mutableListOf<String>()
+        val unchanged = mutableListOf<String>()
+        val rarer = mutableListOf<String>()
+        val custom = mutableListOf<String>()
+        val missing = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        forEachWithProgress(cards) { card ->
+            val wanted = target(card)
+            val current = applied[card.id]?.let { CustomArt.resolve(card, it) }
+            when {
+                current != null && CustomArt.isCustom(current) -> custom += card.id
+                wanted == null -> missing += card.id
+                // Same tier (e.g. the second of two SPs): keep that specific choice.
+                current != null && ArtTier.of(current) == ArtTier.of(wanted) -> unchanged += card.id
+                current != null && ArtTier.of(current) > ArtTier.of(wanted) -> rarer += card.id
+                else -> try {
+                    art.apply(path, card, wanted)
+                    thumbnails.invalidate(card.id)
+                    changed += card.id
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed += "${card.id} (${e.message ?: "unknown error"})"
+                }
+            }
+        }
+        buildList {
+            if (changed.isNotEmpty()) add("Applied $label to ${changed.size} ${plural(changed.size)}.")
+            if (unchanged.isNotEmpty()) add("${unchanged.size} already had it.")
+            if (rarer.isNotEmpty()) add("${rarer.size} kept a rarer art${listed(rarer)}.")
+            if (custom.isNotEmpty()) add("${custom.size} kept your custom image${listed(custom)}.")
+            if (missing.isNotEmpty()) add("${missing.size} ${if (missing.size == 1) "has" else "have"} no $missingLabel${listed(missing)}.")
+            if (failed.isNotEmpty()) add("Couldn't change ${failed.size}${listed(failed, "; ")}")
+        }.joinToString(" ").ifBlank { "Nothing to change." }
+    }
+
+    /** Puts the sim's original art back on every selected card that was changed. */
+    fun restoreSelected() = runBulk("Restoring originals") { path, cards, applied ->
+        val modified = cards.filter { it.id in applied }
+        val restored = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        forEachWithProgress(modified) { card ->
+            try {
+                art.restoreOriginal(path, card)
+                thumbnails.invalidate(card.id)
+                restored += card.id
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed += "${card.id} (${e.message ?: "unknown error"})"
+            }
+        }
+        buildList {
+            add(if (restored.isEmpty()) "None of the selected cards were changed." else "Restored the original art on ${restored.size} ${plural(restored.size)}.")
+            if (failed.isNotEmpty()) add("Couldn't restore ${failed.size}${listed(failed, "; ")}")
+        }.joinToString(" ")
+    }
+
+    /**
+     * Runs a bulk change on the selected cards, one at a time (missing art may need downloading),
+     * then refreshes badges and thumbnails and clears the selection. [action] returns the summary.
+     */
+    private fun runBulk(
+        verb: String,
+        action: suspend BulkScope.(cardsPath: String, cards: List<Card>, applied: Map<String, String>) -> String,
+    ) {
+        val current = _state.value
+        if (!current.canBulkChange) return
+        val path = cardsPath
+        if (path == null) {
+            _state.update { it.copy(bulkMessage = "The OPTCGSim folder isn't verified, so art can't be changed.") }
+            return
+        }
+        val byId = catalog?.cards?.associateBy { it.id }.orEmpty()
+        val cards = current.selectedCardIds.mapNotNull(byId::get)
+        _state.update { it.copy(bulkProgress = 0 to cards.size, bulkMessage = null) }
+        viewModelScope.launch {
+            val scope = BulkScope()
+            val summary = try {
+                scope.action(path, cards, art.appliedVariants())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "$verb failed: ${e.message ?: "unknown error"}"
+            }
+            val modified = art.appliedVariants().keys
+            _state.update {
+                withMatches(
+                    it.copy(
+                        bulkProgress = null,
+                        bulkMessage = summary,
+                        selectedCardIds = emptySet(),
+                        modifiedCardIds = modified,
+                        thumbnailRevision = it.thumbnailRevision + 1,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Helpers available inside a bulk action. */
+    private inner class BulkScope {
+        suspend fun forEachWithProgress(cards: List<Card>, each: suspend (Card) -> Unit) {
+            _state.update { it.copy(bulkProgress = 0 to cards.size) }
+            cards.forEachIndexed { index, card ->
+                each(card)
+                _state.update { it.copy(bulkProgress = index + 1 to cards.size) }
+            }
+        }
+    }
+
+    private fun plural(n: Int) = if (n == 1) "card" else "cards"
+
+    /** ": OP01-001, OP01-002" for short lists; nothing for long ones, so the summary shows just the count. */
+    private fun listed(items: List<String>, separator: String = ", "): String =
+        if (items.size > MAX_LISTED_IN_SUMMARY) "" else ": " + items.joinToString(separator)
+
     /** After the quick-swap window closes: refresh "Modified" badges and the swapped card's thumbnail. */
     fun onQuickSwapClosed() {
         refreshModified()
@@ -194,4 +359,9 @@ class CardBrowserViewModel(
     }
 
     private fun <T> Set<T>.toggle(value: T): Set<T> = if (value in this) this - value else this + value
+
+    private companion object {
+        /** Bulk summaries list card numbers only up to this many per group; beyond it, just the count. */
+        const val MAX_LISTED_IN_SUMMARY = 20
+    }
 }
