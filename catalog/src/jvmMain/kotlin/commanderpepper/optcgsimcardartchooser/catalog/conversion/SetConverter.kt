@@ -2,7 +2,6 @@ package commanderpepper.optcgsimcardartchooser.catalog.conversion
 
 import commanderpepper.optcgsimcardartchooser.catalog.image.SimCardImages
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
-import commanderpepper.optcgsimcardartchooser.catalog.model.Catalog
 import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -11,7 +10,6 @@ import io.ktor.http.isSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -21,21 +19,15 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readBytes
 
-@Serializable
-data class SetConversionReport(val setId: String, val finishedAt: String, val results: List<VariantResult>) {
-    fun count(status: VariantResult.Status) = results.count { it.status == status }
-}
-
-@Serializable
 data class VariantResult(val cardId: String, val variantId: String, val status: Status, val message: String? = null) {
     enum class Status { Converted, AlreadyConverted, Failed }
 }
 
 /**
- * Converts one set's variants into sim-ready files:
+ * Downloads a variant's art from the catalog's image URLs and converts it into sim-ready files:
  * `converted/<SET>/<variantId>.jpg` and `<variantId>_small.jpg`.
  * Raw downloads are cached in `downloads/`; existing conversions and downloads are reused, so
- * re-running a set only fetches what's missing. A failed variant is recorded and skipped.
+ * only what's missing is fetched.
  */
 class SetConverter(
     private val http: HttpClient,
@@ -43,24 +35,6 @@ class SetConverter(
     /** Pause between network requests to go easy on the image host. */
     private val requestDelayMillis: Long = 300,
 ) {
-    suspend fun convert(
-        catalog: Catalog,
-        setId: String,
-        finishedAt: () -> String,
-        onProgress: (index: Int, total: Int, result: VariantResult) -> Unit = { _, _, _ -> },
-    ): SetConversionReport {
-        val work = ConversionScope.variantsFor(catalog, setId)
-        val outDir = dirs.convertedSet(setId).createDirectories()
-        dirs.downloads.createDirectories()
-
-        val results = work.mapIndexed { index, (card, variant) ->
-            val result = convertOne(card, variant, outDir)
-            onProgress(index + 1, work.size, result)
-            result
-        }
-        return SetConversionReport(setId, finishedAt(), results)
-    }
-
     /** Converts a single variant if it isn't already (downloading it if needed). */
     suspend fun convertVariant(card: Card, variant: Variant): VariantResult {
         val outDir = dirs.convertedSet(card.setId).createDirectories()

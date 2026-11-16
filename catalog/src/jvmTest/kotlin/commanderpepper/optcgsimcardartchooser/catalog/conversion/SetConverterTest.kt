@@ -1,8 +1,6 @@
 package commanderpepper.optcgsimcardartchooser.catalog.conversion
 
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
-import commanderpepper.optcgsimcardartchooser.catalog.model.CardSet
-import commanderpepper.optcgsimcardartchooser.catalog.model.Catalog
 import commanderpepper.optcgsimcardartchooser.catalog.model.Category
 import commanderpepper.optcgsimcardartchooser.catalog.model.ImageSource
 import commanderpepper.optcgsimcardartchooser.catalog.model.Variant
@@ -19,7 +17,6 @@ import java.nio.file.Files
 import javax.imageio.ImageIO
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.name
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -53,58 +50,35 @@ class SetConverterTest {
     private fun variant(id: String, kind: VariantKind, tags: List<String> = emptyList(), vararg urls: String) =
         Variant(id, kind, tags, images = urls.map { ImageSource(it, "test") })
 
-    private val catalog = Catalog(
-        schemaVersion = 2, generatedAt = "t",
-        sets = listOf(CardSet("OP01", "Romance Dawn"), CardSet("OP02", "Paramount War")),
-        cards = listOf(
-            Card(
-                "OP01-001", "Zoro", "OP01", Category.Leader, emptyList(),
-                variants = listOf(
-                    variant("OP01-001", VariantKind.Regular, emptyList(), "https://img/OP01-001.jpg"),
-                    variant("OP01-001_p1", VariantKind.AltArt, listOf("Parallel"), "https://img/missing.jpg", "https://img/OP01-001_p1.jpg"),
-                    variant("OP01-001_p2", VariantKind.Foil, listOf("Jolly Roger Foil"), "https://img/jolly.jpg"),
-                    variant("OP01-001_r1", VariantKind.Reprint, listOf("Reprint"), "https://img/reprint.jpg"),
-                ),
-            ),
-            Card(
-                "OP01-002", "Law", "OP01", Category.Leader, emptyList(),
-                variants = listOf(variant("OP01-002", VariantKind.Regular, emptyList(), "https://img/html.jpg")),
-            ),
-            Card(
-                "OP02-001", "Newgate", "OP02", Category.Leader, emptyList(),
-                variants = listOf(variant("OP02-001", VariantKind.Regular, emptyList(), "https://img/OP02-001.jpg")),
-            ),
+    private val zoro = Card(
+        "OP01-001", "Zoro", "OP01", Category.Leader, emptyList(),
+        variants = listOf(
+            variant("OP01-001", VariantKind.Regular, emptyList(), "https://img/OP01-001.jpg"),
+            variant("OP01-001_p1", VariantKind.AltArt, listOf("Parallel"), "https://img/missing.jpg", "https://img/OP01-001_p1.jpg"),
         ),
     )
+    private val law = Card(
+        "OP01-002", "Law", "OP01", Category.Leader, emptyList(),
+        variants = listOf(variant("OP01-002", VariantKind.Regular, emptyList(), "https://img/html.jpg")),
+    )
 
-    private suspend fun run() = SetConverter(http, dirs, requestDelayMillis = 0).convert(catalog, "OP01", finishedAt = { "now" })
+    private val converter = SetConverter(http, dirs, requestDelayMillis = 0)
+    private suspend fun convert(card: Card, index: Int = 0) = converter.convertVariant(card, card.variants[index])
 
     @Test
-    fun convertsOnlyInScopeVariantsOfTheRequestedSet() = runTest {
-        val report = run()
-        val statuses = report.results.associate { it.variantId to it.status }
-        assertEquals(
-            mapOf(
-                "OP01-001" to VariantResult.Status.Converted,
-                "OP01-001_p1" to VariantResult.Status.Converted,
-                "OP01-002" to VariantResult.Status.Failed,
-            ),
-            statuses,
-        )
-        assertTrue(requested.none { "jolly" in it || "reprint" in it || "OP02" in it }, requested.toString())
-
-        val out = dirs.convertedSet("OP01")
-        assertEquals(
-            setOf("OP01-001.jpg", "OP01-001_small.jpg", "OP01-001_p1.jpg", "OP01-001_p1_small.jpg"),
-            out.listDirectoryEntries().map { it.name }.toSet(),
-        )
-        val full = ImageIO.read(out.resolve("OP01-001_p1.jpg").toFile())
-        assertEquals(480 to 671, full.width to full.height)
+    fun writesSimReadyFullAndSmallJpegs() = runTest {
+        assertEquals(VariantResult.Status.Converted, convert(zoro, 1).status)
+        val (full, small) = converter.convertedFiles("OP01", "OP01-001_p1")
+        assertEquals(dirs.convertedSet("OP01"), full.parent)
+        val fullImage = ImageIO.read(full.toFile())
+        assertEquals(480 to 671, fullImage.width to fullImage.height)
+        val smallImage = ImageIO.read(small.toFile())
+        assertEquals(120 to 167, smallImage.width to smallImage.height)
     }
 
     @Test
     fun fallsBackToTheNextImageUrlAndCachesDownloadsByContentType() = runTest {
-        run()
+        convert(zoro, 1)
         assertTrue(requested.indexOf("https://img/missing.jpg") < requested.indexOf("https://img/OP01-001_p1.jpg"))
         // Served bytes are PNG even though the URLs end in .jpg.
         assertTrue(dirs.downloads.resolve("OP01-001_p1.png").exists())
@@ -112,26 +86,26 @@ class SetConverterTest {
 
     @Test
     fun failuresExplainWhy() = runTest {
-        val failed = run().results.single { it.status == VariantResult.Status.Failed }
+        val failed = convert(law)
+        assertEquals(VariantResult.Status.Failed, failed.status)
         assertTrue(failed.message!!.contains("not an image"), failed.message)
+        assertTrue(dirs.convertedSet("OP01").listDirectoryEntries().isEmpty(), "nothing written for a failure")
     }
 
     @Test
-    fun rerunSkipsFinishedVariantsWithoutNetwork() = runTest {
-        run()
+    fun alreadyConvertedVariantsSkipTheNetwork() = runTest {
+        convert(zoro)
         requested.clear()
-        val second = run()
-        assertEquals(2, second.count(VariantResult.Status.AlreadyConverted))
-        assertEquals(listOf("https://img/html.jpg"), requested, "only the previously failed variant is retried")
+        assertEquals(VariantResult.Status.AlreadyConverted, convert(zoro).status)
+        assertTrue(requested.isEmpty(), requested.toString())
     }
 
     @Test
     fun conversionReusesCachedDownloads() = runTest {
-        run()
-        dirs.convertedSet("OP01").resolve("OP01-001.jpg").toFile().delete()
+        convert(zoro)
+        converter.convertedFiles("OP01", "OP01-001").first.toFile().delete()
         requested.clear()
-        val again = run()
-        assertEquals(VariantResult.Status.Converted, again.results.first { it.variantId == "OP01-001" }.status)
-        assertTrue(requested.none { "OP01-001.jpg" in it }, "re-converted from the cached download")
+        assertEquals(VariantResult.Status.Converted, convert(zoro).status)
+        assertTrue(requested.isEmpty(), "re-converted from the cached download")
     }
 }
