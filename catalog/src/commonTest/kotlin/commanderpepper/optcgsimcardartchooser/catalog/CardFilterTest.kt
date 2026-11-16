@@ -57,4 +57,19 @@ class CardFilterTest {
 
     @Test
     fun alternateArtOnly() = assertEquals(listOf("OP01-001", "EB01-006"), ids(CardFilter(onlyWithAlternateArt = true)))
+
+    @Test
+    fun printingsTheAppDoesNotOfferAreNotAlternateArt() {
+        val reprintOnly = Card(
+            "ST01-012", "Luffy", "ST01", Category.Character, emptyList(),
+            variants = listOf(
+                Variant("ST01-012", VariantKind.Regular),
+                Variant("ST01-012_r1", VariantKind.Reprint),
+                Variant("ST01-012_p1", VariantKind.Foil, listOf("Jolly Roger Foil")),
+            ),
+        )
+        assertEquals(emptyList(), listOf(reprintOnly).filteredBy(CardFilter(onlyWithAlternateArt = true)))
+        assertEquals(0, reprintOnly.alternateArtCount)
+        assertEquals(2, cards.last().alternateArtCount)
+    }
 }

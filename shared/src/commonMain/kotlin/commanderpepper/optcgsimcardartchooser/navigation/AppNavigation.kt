@@ -103,6 +103,7 @@ fun AppNavigation(
                     onToggleSet = viewModel::toggleSet,
                     onToggleTrait = viewModel::toggleTrait,
                     onToggleArtStatus = viewModel::toggleArtStatus,
+                    onToggleArtExtra = viewModel::toggleArtExtra,
                     deckActions = remember(viewModel) {
                         DeckListActions(viewModel::applyDeckList, viewModel::clearDeckList, viewModel::dismissDeckMessage)
                     },

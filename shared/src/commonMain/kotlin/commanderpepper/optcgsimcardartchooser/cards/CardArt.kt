@@ -35,6 +35,9 @@ interface CardArt {
      */
     suspend fun reapply(cardsPath: String, card: Card, variant: Variant): ReapplyOutcome
 
+    /** How many custom images each card has (used or not), as card ID → count; cards without any are left out. */
+    suspend fun customImageCounts(): Map<String, Int>
+
     /** [card]'s custom images, oldest first. */
     suspend fun customImages(card: Card): List<CustomImage>
 

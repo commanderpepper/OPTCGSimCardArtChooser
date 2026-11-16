@@ -22,6 +22,9 @@ object CustomArt {
 
     fun isCustomId(variantId: String): Boolean = ID.matches(variantId)
 
+    /** The card a custom image ID belongs to, or null if [variantId] isn't one. */
+    fun cardId(variantId: String): String? = ID.find(variantId)?.groupValues?.get(1)
+
     /** 1 for `<cardId>_custom`, N for `<cardId>_customN`. */
     fun number(variantId: String): Int = ID.find(variantId)?.groupValues?.get(2)?.toIntOrNull() ?: 1
 

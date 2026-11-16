@@ -83,9 +83,14 @@ class CardBrowserViewModelTest {
 
     /** Only [appliedVariants] matters to the browser; [modified] can change between reads. */
     /** Applying/restoring updates [modified] like the real thing; card IDs in [failOn] throw. */
-    private class FakeArt(var modified: Map<String, String> = emptyMap(), private val failOn: Set<String> = emptySet()) : CardArt {
+    private class FakeArt(
+        var modified: Map<String, String> = emptyMap(),
+        private val failOn: Set<String> = emptySet(),
+        var customCounts: Map<String, Int> = emptyMap(),
+    ) : CardArt {
         val calls = mutableListOf<String>()
         override suspend fun appliedVariants() = modified
+        override suspend fun customImageCounts() = customCounts
         override suspend fun appliedVariant(cardId: String) = modified[cardId]
         override suspend fun variantPreview(card: Card, variant: Variant): ImageBitmap? = null
         override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
@@ -533,8 +538,32 @@ class CardBrowserViewModelTest {
         assertEquals(listOf("OP01-001", "EB01-006"), ids(vm))
         vm.toggleTrait("Straw Hat Crew")
 
-        vm.setOnlyWithAlternateArt(true)
+        vm.toggleArtExtra(ArtExtra.AltArt)
         assertEquals(listOf("OP01-001", "EB01-006"), ids(vm))
+        assertEquals(setOf(ArtExtra.AltArt), vm.state.value.artExtras)
+    }
+
+    @Test
+    fun hasFilterShowsCardsWithCustomImagesAndCombinesWithAltArt() {
+        val art = FakeArt(customCounts = mapOf("OP01-061" to 1, "EB01-006" to 3))
+        val vm = browser(FakeRepository { catalog }, art = art)
+        assertEquals(mapOf("OP01-061" to 1, "EB01-006" to 3), vm.state.value.customImageCounts)
+
+        vm.toggleArtExtra(ArtExtra.CustomImage)
+        assertEquals(listOf("OP01-061", "EB01-006"), ids(vm))
+        assertTrue(vm.state.value.hasActiveFilter)
+
+        vm.toggleArtExtra(ArtExtra.AltArt) // both ticked: needs both
+        assertEquals(listOf("EB01-006"), ids(vm))
+        assertEquals(ArtExtra.entries.toSet(), vm.state.value.artExtras)
+
+        art.customCounts = mapOf("OP01-001" to 1) // images added on the card page
+        vm.refreshModified()
+        assertEquals(listOf("OP01-001"), ids(vm))
+
+        vm.clearFilters()
+        assertTrue(vm.state.value.artExtras.isEmpty())
+        assertEquals(3, ids(vm).size)
     }
 
     @Test

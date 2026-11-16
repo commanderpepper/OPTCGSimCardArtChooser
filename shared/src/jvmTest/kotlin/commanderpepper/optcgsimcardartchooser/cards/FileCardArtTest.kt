@@ -209,6 +209,18 @@ class FileCardArtTest {
     }
 
     @Test
+    fun countsEachCardsCustomImages() = runTest {
+        assertTrue(art.customImageCounts().isEmpty())
+        art.addCustomImage(jpgCard, image("1.png"))
+        art.addCustomImage(jpgCard, image("2.png"))
+        val pngCustom = art.addCustomImage(pngCard, image("3.png")).first
+        assertEquals(mapOf("OP09-001" to 2, "OP01-001" to 1), art.customImageCounts(), "small copies aren't counted")
+
+        art.removeCustomImage(pngCard, pngCustom.variant.id)
+        assertEquals(mapOf("OP09-001" to 2), art.customImageCounts())
+    }
+
+    @Test
     fun replacingKeepsTheIdAndChangesThePicture() = runTest {
         val id = art.addCustomImage(jpgCard, image("red.png", color = Color.RED)).first.variant.id
         val (replaced, _) = art.replaceCustomImage(jpgCard, id, image("blue.png", color = Color.BLUE))

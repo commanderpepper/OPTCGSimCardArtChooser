@@ -84,6 +84,8 @@ class CardDetailViewModelTest {
         val customIds = mutableListOf<String>()
         var customSize = CustomImageInfo(600, 838)
 
+        override suspend fun customImageCounts() = if (customIds.isEmpty()) emptyMap() else mapOf("EB01-006" to customIds.size)
+
         override suspend fun customImages(card: Card) = customIds.map { CustomImage(CustomArt.variant(it), ImageBitmap(48, 67)) }
 
         override suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo> {

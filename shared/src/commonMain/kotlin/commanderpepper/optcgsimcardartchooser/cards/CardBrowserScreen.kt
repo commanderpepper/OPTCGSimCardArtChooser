@@ -45,14 +45,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import commanderpepper.optcgsimcardartchooser.catalog.alternateArtCount
 import commanderpepper.optcgsimcardartchooser.catalog.model.Card
 import commanderpepper.optcgsimcardartchooser.catalog.model.CardColor
 import commanderpepper.optcgsimcardartchooser.catalog.model.Category
 
 /**
- * Card browser: search, Color / Card type / Set dropdown filters, and a grid of card tiles with
- * thumbnails. Clicking a card opens its art options. Still to come: more filter dropdowns (traits,
- * alt art — already supported by the ViewModel).
+ * Card browser: search, dropdown filters (color, card type, set, trait, art status, alt art or
+ * custom image, deck list), and a grid of card tiles with thumbnails. Clicking a card opens its
+ * art options.
  */
 @Composable
 fun CardBrowserScreen(
@@ -63,6 +64,7 @@ fun CardBrowserScreen(
     onToggleSet: (String) -> Unit,
     onToggleTrait: (String) -> Unit,
     onToggleArtStatus: (ArtStatus) -> Unit,
+    onToggleArtExtra: (ArtExtra) -> Unit,
     deckActions: DeckListActions,
     onClearFilters: () -> Unit,
     onRetry: () -> Unit,
@@ -87,7 +89,7 @@ fun CardBrowserScreen(
                 Button(onClick = onRetry) { Text("Retry") }
             }
             else -> {
-                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleTrait, onToggleArtStatus, deckActions, onClearFilters, selection)
+                Filters(state, onQueryChanged, onToggleColor, onToggleCategory, onToggleSet, onToggleTrait, onToggleArtStatus, onToggleArtExtra, deckActions, onClearFilters, selection)
                 state.deckMessage?.let { DeckMessageBanner(it, deckActions.onDismissMessage) }
                 Text(
                     "${state.cards.size} of ${state.totalCards} cards · right-click or long-press a card to swap its art quickly · " +
@@ -111,6 +113,7 @@ fun CardBrowserScreen(
                                     card = card,
                                     modifier = Modifier.marqueeItem(card.id),
                                     isModified = card.id in state.modifiedCardIds,
+                                    customImages = state.customImageCounts[card.id] ?: 0,
                                     isSelected = card.id in state.selectedCardIds || card.id in touching,
                                     thumbnailRevision = state.thumbnailRevision,
                                     loadThumbnail = loadThumbnail,
@@ -136,6 +139,7 @@ private fun Filters(
     onToggleSet: (String) -> Unit,
     onToggleTrait: (String) -> Unit,
     onToggleArtStatus: (ArtStatus) -> Unit,
+    onToggleArtExtra: (ArtExtra) -> Unit,
     deckActions: DeckListActions,
     onClearFilters: () -> Unit,
     selection: SelectionActions,
@@ -176,6 +180,7 @@ private fun Filters(
                 optionLabel = { id -> state.sets.firstOrNull { it.id == id }?.let { "${it.id} · ${it.name}" } ?: id },
                 summaryLabel = { it },
                 onToggle = onToggleSet,
+                searchPlaceholder = "Search sets",
             )
             MultiSelectDropdown(
                 label = "Trait",
@@ -191,6 +196,13 @@ private fun Filters(
                 selected = state.artStatuses,
                 optionLabel = { it.label },
                 onToggle = onToggleArtStatus,
+            )
+            MultiSelectDropdown(
+                label = "Has",
+                sections = listOf(DropdownSection(null, ArtExtra.entries)),
+                selected = state.artExtras,
+                optionLabel = { it.label },
+                onToggle = onToggleArtExtra,
             )
             DeckListButton(state, deckActions)
             if (state.hasActiveFilter) {
@@ -441,6 +453,8 @@ private fun CardTile(
     card: Card,
     modifier: Modifier = Modifier,
     isModified: Boolean,
+    /** How many of the user's own images the card has. */
+    customImages: Int,
     isSelected: Boolean,
     thumbnailRevision: Int,
     loadThumbnail: suspend (Card) -> ImageBitmap?,
@@ -486,12 +500,19 @@ private fun CardTile(
                     "${card.category.name} · ${card.colors.joinToString("/") { it.name }}",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                val alts = card.variants.size - 1
+                val alts = card.alternateArtCount
                 Text(
                     if (alts > 0) "$alts alternate art${if (alts > 1) "s" else ""}" else "Regular art only",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                if (customImages > 0) {
+                    Text(
+                        "+ $customImages custom image${if (customImages > 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
             Checkbox(checked = isSelected, onCheckedChange = { onToggleSelected() })
         }

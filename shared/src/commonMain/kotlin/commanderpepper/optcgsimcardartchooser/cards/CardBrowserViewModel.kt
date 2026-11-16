@@ -26,12 +26,19 @@ import kotlinx.coroutines.launch
 /** Whether a card shows the sim's own art or art applied by this app. */
 enum class ArtStatus(val label: String) { Modified("Modified"), Original("Original") }
 
+/** Extra art a card can be required to have; ticking several requires all of them. */
+enum class ArtExtra(val label: String) { AltArt("Alt art"), CustomImage("Custom image") }
+
 data class CardBrowserState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val filter: CardFilter = CardFilter(),
     /** Empty or both = every card. */
     val artStatuses: Set<ArtStatus> = emptySet(),
+    /** Only cards with at least one of the user's own images. */
+    val onlyWithCustomImage: Boolean = false,
+    /** How many custom images each card has, used or not; cards without any are left out. */
+    val customImageCounts: Map<String, Int> = emptyMap(),
     /** Card IDs from a pasted deck list (only ones in the catalog), in deck order; null = no deck filter. */
     val deckCardIds: List<String>? = null,
     /** The deck list as last entered, to pre-fill the dialog. */
@@ -56,7 +63,15 @@ data class CardBrowserState(
     /** Summary of the last bulk action. */
     val bulkMessage: String? = null,
 ) {
-    val hasActiveFilter: Boolean get() = filter != CardFilter() || artStatuses.isNotEmpty() || deckCardIds != null
+    val hasActiveFilter: Boolean
+        get() = filter != CardFilter() || artStatuses.isNotEmpty() || onlyWithCustomImage || deckCardIds != null
+
+    /** The ticked options of the "Has" filter. */
+    val artExtras: Set<ArtExtra>
+        get() = buildSet {
+            if (filter.onlyWithAlternateArt) add(ArtExtra.AltArt)
+            if (onlyWithCustomImage) add(ArtExtra.CustomImage)
+        }
 
     /** Every card the current filters show is selected (so "Select all" becomes "Deselect all"). */
     val allShownSelected: Boolean get() = cards.isNotEmpty() && cards.all { it.id in selectedCardIds }
@@ -102,13 +117,18 @@ class CardBrowserViewModel(
 
     fun toggleTrait(trait: String) = updateFilter { it.copy(traits = it.traits.toggle(trait)) }
 
-    fun setOnlyWithAlternateArt(enabled: Boolean) = updateFilter { it.copy(onlyWithAlternateArt = enabled) }
+    fun toggleArtExtra(extra: ArtExtra) = when (extra) {
+        ArtExtra.AltArt -> updateFilter { it.copy(onlyWithAlternateArt = !it.onlyWithAlternateArt) }
+        ArtExtra.CustomImage -> _state.update { withMatches(it.copy(onlyWithCustomImage = !it.onlyWithCustomImage)) }
+    }
 
     fun toggleArtStatus(status: ArtStatus) =
         _state.update { withMatches(it.copy(artStatuses = it.artStatuses.toggle(status))) }
 
     fun clearFilters() = _state.update {
-        withMatches(it.copy(filter = CardFilter(), artStatuses = emptySet(), deckCardIds = null, deckMessage = null))
+        withMatches(
+            it.copy(filter = CardFilter(), artStatuses = emptySet(), onlyWithCustomImage = false, deckCardIds = null, deckMessage = null),
+        )
     }
 
     /**
@@ -143,13 +163,14 @@ class CardBrowserViewModel(
     }
 
     /**
-     * Re-reads which cards have modified art. Called whenever the page is shown, since art is
-     * changed on the card page while this one waits underneath.
+     * Re-reads which cards have modified art and which have custom images. Called whenever the
+     * page is shown, since both change on the card page while this one waits underneath.
      */
     fun refreshModified() {
         viewModelScope.launch {
             val modified = art.appliedVariants().keys
-            _state.update { withMatches(it.copy(modifiedCardIds = modified)) }
+            val custom = art.customImageCounts()
+            _state.update { withMatches(it.copy(modifiedCardIds = modified, customImageCounts = custom)) }
         }
     }
 
@@ -317,6 +338,7 @@ class CardBrowserViewModel(
             try {
                 val loaded = repository.load()
                 val modified = art.appliedVariants().keys
+                val custom = art.customImageCounts()
                 catalog = loaded
                 _state.update {
                     withMatches(
@@ -326,6 +348,7 @@ class CardBrowserViewModel(
                             sets = loaded.sets.sortedByProductLine(),
                             traits = loaded.allTraits(),
                             modifiedCardIds = modified,
+                            customImageCounts = custom,
                         ),
                     )
                 }
@@ -340,7 +363,7 @@ class CardBrowserViewModel(
     private fun updateFilter(change: (CardFilter) -> CardFilter) =
         _state.update { withMatches(it.copy(filter = change(it.filter))) }
 
-    /** Recomputes [CardBrowserState.cards] from the catalog, the deck list, the card filter and the art filter. */
+    /** Recomputes [CardBrowserState.cards] from the catalog, the deck list, the card filter and the art filters. */
     private fun withMatches(state: CardBrowserState): CardBrowserState {
         val all = catalog?.cards.orEmpty()
         val pool = state.deckCardIds?.let { deck ->
@@ -354,6 +377,8 @@ class CardBrowserViewModel(
         } else {
             val wantModified = ArtStatus.Modified in statuses
             cards.filter { (it.id in state.modifiedCardIds) == wantModified }
+        }.let { shown ->
+            if (state.onlyWithCustomImage) shown.filter { it.id in state.customImageCounts } else shown
         }
         return state.copy(cards = matching)
     }

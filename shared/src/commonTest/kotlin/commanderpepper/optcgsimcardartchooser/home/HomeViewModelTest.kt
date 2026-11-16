@@ -59,6 +59,7 @@ class HomeViewModelTest {
         override suspend fun originalPreview(cardsPath: String, card: Card): ImageBitmap? = null
         override suspend fun apply(cardsPath: String, card: Card, variant: Variant) = Unit
         override suspend fun restoreOriginal(cardsPath: String, card: Card) = Unit
+        override suspend fun customImageCounts() = emptyMap<String, Int>()
         override suspend fun customImages(card: Card) = emptyList<CustomImage>()
         override suspend fun addCustomImage(card: Card, sourcePath: String): Pair<CustomImage, CustomImageInfo> = error("unused")
         override suspend fun replaceCustomImage(card: Card, variantId: String, sourcePath: String): Pair<CustomImage, CustomImageInfo> = error("unused")

@@ -126,6 +126,20 @@ class FileCardArt(
             .sortedBy(CustomArt::number)
     }
 
+    override suspend fun customImageCounts(): Map<String, Int> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val root = dirs.data.resolve("custom")
+            if (!root.isDirectory()) return@withContext emptyMap()
+            root.listDirectoryEntries().filter { it.isDirectory() }
+                .flatMap { it.listDirectoryEntries("*.jpg") }
+                .map { it.name.removeSuffix(".jpg") }
+                .filterNot { it.endsWith("_small") }
+                // Not yet migrated single-image files are named after the card itself.
+                .groupingBy { CustomArt.cardId(it) ?: it }
+                .eachCount()
+        }
+    }
+
     override suspend fun customImages(card: Card): List<CustomImage> = mutex.withLock {
         withContext(Dispatchers.IO) {
             customVariantIds(card).map { id -> CustomImage(CustomArt.variant(id), decode(customFiles(card, id).first)) }
