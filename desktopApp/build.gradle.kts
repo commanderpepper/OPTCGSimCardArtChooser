@@ -35,8 +35,11 @@ compose.desktop {
             description = "Choose which card art OPTCGSim displays"
             vendor = "commanderpepper"
 
-            // java.desktop (Swing/AWT pickers) is included by default; Preferences needs java.prefs.
-            modules("java.prefs")
+            // Extra JDK modules for the bundled runtime, from `./gradlew :desktopApp:suggestRuntimeModules`
+            // (java.desktop is always included). java.net.http: Ktor's Java engine; java.prefs: the saved
+            // sim folder and theme. Re-run that task after adding libraries: `run` uses the full JDK, so a
+            // missing module only shows up in the packaged app.
+            modules("java.instrument", "java.management", "java.net.http", "java.prefs", "jdk.unsupported")
 
             // App icons (installer, shortcuts, app bundle); made from one picture, see icons/README.md.
             linux { iconFile.set(project.file("icons/app.png")) }
