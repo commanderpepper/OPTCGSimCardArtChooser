@@ -29,6 +29,7 @@ import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderSetupScreen
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
+import commanderpepper.optcgsimcardartchooser.theme.ThemeMode
 
 /**
  * Hosts every [Pages] destination. The sim folder ViewModel is shared by the setup and home
@@ -40,6 +41,8 @@ fun AppNavigation(
     folderViewModel: SimFolderViewModel,
     folderPicker: FolderPicker,
     imagePicker: ImagePicker,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
 ) {
     val folderState by folderViewModel.state.collectAsStateWithLifecycle()
     val start: Pages = if (folderState.confirmed != null) Pages.Home else Pages.SimFolderSetup
@@ -79,6 +82,8 @@ fun AppNavigation(
                         },
                         onReapply = homeViewModel::reapplyAll,
                         onDismissMessage = homeViewModel::dismissMessage,
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
                     )
                 }
             }

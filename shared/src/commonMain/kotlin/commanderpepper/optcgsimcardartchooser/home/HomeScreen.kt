@@ -12,7 +12,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
+import commanderpepper.optcgsimcardartchooser.theme.ThemeMode
 
 @Composable
 fun HomeScreen(
@@ -29,6 +34,8 @@ fun HomeScreen(
     onChangeFolder: () -> Unit,
     onReapply: () -> Unit,
     onDismissMessage: () -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
 ) {
     Column(
         modifier = Modifier.padding(32.dp).widthIn(max = 760.dp),
@@ -69,6 +76,27 @@ fun HomeScreen(
                     TextButton(onClick = onDismissMessage) { Text("OK") }
                 }
             }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Appearance", style = MaterialTheme.typography.titleMedium)
+        ThemePicker(themeMode, onThemeModeChange)
+    }
+}
+
+/** System / Light / Dark, as one segmented control. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemePicker(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    val modes = ThemeMode.entries
+    SingleChoiceSegmentedButtonRow {
+        modes.forEachIndexed { index, mode ->
+            SegmentedButton(
+                selected = mode == selected,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+            ) { Text(mode.label) }
         }
     }
 }

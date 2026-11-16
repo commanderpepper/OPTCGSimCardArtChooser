@@ -11,6 +11,8 @@ import commanderpepper.optcgsimcardartchooser.simfolder.NativeFolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.PreferencesSimFolderStore
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderLocator
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderStore
+import commanderpepper.optcgsimcardartchooser.theme.PreferencesThemeStore
+import commanderpepper.optcgsimcardartchooser.theme.ThemeStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
@@ -27,6 +29,10 @@ interface DesktopBindings {
     @Provides
     @SingleIn(AppScope::class)
     fun provideSimFolderStore(): SimFolderStore = PreferencesSimFolderStore()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideThemeStore(): ThemeStore = PreferencesThemeStore()
 
     @Provides
     @SingleIn(AppScope::class)
