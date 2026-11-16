@@ -29,6 +29,7 @@ import dev.zacsweers.metrox.viewmodel.metroViewModel
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderSetupScreen
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
+import commanderpepper.optcgsimcardartchooser.theme.TextSizeActions
 import commanderpepper.optcgsimcardartchooser.theme.ThemeMode
 
 /**
@@ -43,6 +44,8 @@ fun AppNavigation(
     imagePicker: ImagePicker,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    textScale: Int,
+    textSizeActions: TextSizeActions,
 ) {
     val folderState by folderViewModel.state.collectAsStateWithLifecycle()
     val start: Pages = if (folderState.confirmed != null) Pages.Home else Pages.SimFolderSetup
@@ -84,6 +87,8 @@ fun AppNavigation(
                         onDismissMessage = homeViewModel::dismissMessage,
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
+                        textScale = textScale,
+                        textSizeActions = textSizeActions,
                     )
                 }
             }

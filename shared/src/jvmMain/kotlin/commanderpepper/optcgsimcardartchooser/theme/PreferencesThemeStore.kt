@@ -2,7 +2,7 @@ package commanderpepper.optcgsimcardartchooser.theme
 
 import java.util.prefs.Preferences
 
-/** Stores the theme choice next to the sim folder in the OS preference store. */
+/** Stores the appearance choices next to the sim folder in the OS preference store. */
 class PreferencesThemeStore(
     private val prefs: Preferences = Preferences.userRoot().node("commanderpepper/optcgsimcardartchooser"),
 ) : ThemeStore {
@@ -14,7 +14,15 @@ class PreferencesThemeStore(
         prefs.flush()
     }
 
+    override fun loadTextScale(): Int = prefs.getInt(TEXT_SCALE_KEY, TextScale.DEFAULT)
+
+    override fun saveTextScale(percent: Int) {
+        prefs.putInt(TEXT_SCALE_KEY, percent)
+        prefs.flush()
+    }
+
     private companion object {
         const val KEY = "themeMode"
+        const val TEXT_SCALE_KEY = "textScale"
     }
 }

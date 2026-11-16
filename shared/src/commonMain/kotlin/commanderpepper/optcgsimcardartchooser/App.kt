@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
@@ -11,6 +12,7 @@ import commanderpepper.optcgsimcardartchooser.navigation.AppNavigation
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
 import commanderpepper.optcgsimcardartchooser.simfolder.SimFolderViewModel
 import commanderpepper.optcgsimcardartchooser.theme.AppTheme
+import commanderpepper.optcgsimcardartchooser.theme.TextSizeActions
 import commanderpepper.optcgsimcardartchooser.theme.ThemeViewModel
 import dev.zacsweers.metrox.viewmodel.metroViewModel
 
@@ -23,7 +25,11 @@ fun App(
     themeViewModel: ThemeViewModel = metroViewModel(),
 ) {
     val themeMode by themeViewModel.mode.collectAsStateWithLifecycle()
-    AppTheme(themeMode) {
+    val textScale by themeViewModel.textScale.collectAsStateWithLifecycle()
+    val textSizeActions = remember(themeViewModel) {
+        TextSizeActions(themeViewModel::increaseTextSize, themeViewModel::decreaseTextSize, themeViewModel::resetTextSize)
+    }
+    AppTheme(themeMode, textScale) {
         Surface(modifier = Modifier.fillMaxSize()) {
             AppNavigation(
                 folderViewModel = folderViewModel,
@@ -31,6 +37,8 @@ fun App(
                 imagePicker = imagePicker,
                 themeMode = themeMode,
                 onThemeModeChange = themeViewModel::setMode,
+                textScale = textScale,
+                textSizeActions = textSizeActions,
             )
         }
     }

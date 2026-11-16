@@ -22,8 +22,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
+import commanderpepper.optcgsimcardartchooser.theme.TextScale
+import commanderpepper.optcgsimcardartchooser.theme.TextSizeActions
 import commanderpepper.optcgsimcardartchooser.theme.ThemeMode
 
 @Composable
@@ -36,6 +39,8 @@ fun HomeScreen(
     onDismissMessage: () -> Unit,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    textScale: Int,
+    textSizeActions: TextSizeActions,
 ) {
     Column(
         modifier = Modifier.padding(32.dp).widthIn(max = 760.dp),
@@ -82,6 +87,24 @@ fun HomeScreen(
 
         Text("Appearance", style = MaterialTheme.typography.titleMedium)
         ThemePicker(themeMode, onThemeModeChange)
+        TextSizePicker(textScale, textSizeActions)
+    }
+}
+
+/** "Text size  [A−] 110% [A+]  Reset", limited to [TextScale.MIN]–[TextScale.MAX]. */
+@Composable
+private fun TextSizePicker(percent: Int, actions: TextSizeActions) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Text size", style = MaterialTheme.typography.bodyMedium)
+        OutlinedButton(onClick = actions.onDecrease, enabled = percent > TextScale.MIN) { Text("A−") }
+        Text(
+            "$percent%",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(min = 48.dp),
+        )
+        OutlinedButton(onClick = actions.onIncrease, enabled = percent < TextScale.MAX) { Text("A+") }
+        TextButton(onClick = actions.onReset, enabled = percent != TextScale.DEFAULT) { Text("Reset") }
     }
 }
 
