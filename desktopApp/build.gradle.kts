@@ -7,6 +7,10 @@ plugins {
     alias(libs.plugins.metro)
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 dependencies {
     implementation(project(":shared"))
 

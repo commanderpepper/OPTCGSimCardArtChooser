@@ -6,6 +6,7 @@ plugins {
 // Catalog creation (card data from external sources -> catalog.json) and card image processing.
 // No UI dependencies: the app and the seed generator both use this module.
 kotlin {
+    jvmToolchain(21)
     jvm()
     sourceSets {
         commonMain.dependencies {
