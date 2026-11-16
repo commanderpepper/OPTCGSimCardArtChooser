@@ -1,6 +1,8 @@
 rootProject.name = "OPTCGSimCardArtChooser"
 
 pluginManagement {
+    // Convention plugins (optcg.*) shared by the modules.
+    includeBuild("build-logic")
     repositories {
         google {
             mavenContent {

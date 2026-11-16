@@ -1,13 +1,11 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.kotlinSerialization)
+    // Multiplatform (JVM target, JDK 21), serialization, kotlin-test + coroutines-test: see build-logic.
+    id("optcg.kmp-library")
 }
 
 // Catalog creation (card data from external sources -> catalog.json) and card image processing.
 // No UI dependencies: the app and the seed generator both use this module.
 kotlin {
-    jvmToolchain(21)
-    jvm()
     sourceSets {
         commonMain.dependencies {
             api(libs.kotlinx.serialization.json)
@@ -18,8 +16,6 @@ kotlin {
             implementation(libs.ktor.client.java)
         }
         commonTest.dependencies {
-            implementation(libs.kotlin.test)
-            implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }
     }

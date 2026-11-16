@@ -1,14 +1,12 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    // Multiplatform (JVM target, JDK 21), serialization, kotlin-test + coroutines-test: see build-logic.
+    id("optcg.kmp-library")
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.metro)
-    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
-    jvmToolchain(21)
-    jvm()
     sourceSets {
         commonMain.dependencies {
             // api: shared's public types (e.g. CatalogRepository) expose catalog models.
@@ -24,10 +22,6 @@ kotlin {
             api(libs.metrox.viewmodel.compose)
             implementation(libs.navigation3.ui)
             implementation(libs.androidx.lifecycle.viewmodelNavigation3)
-        }
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
-            implementation(libs.kotlinx.coroutines.test)
         }
         jvmTest.dependencies {
             // Skia's native library, needed to decode and create images in tests.

@@ -1,14 +1,11 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    alias(libs.plugins.kotlinJvm)
+    // Kotlin/JVM (JDK 21) + kotlin-test: see build-logic.
+    id("optcg.kotlin-jvm-app")
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.metro)
-}
-
-kotlin {
-    jvmToolchain(21)
 }
 
 dependencies {
@@ -18,8 +15,6 @@ dependencies {
     implementation(libs.kotlinx.coroutinesSwing)
 
     implementation(libs.compose.uiToolingPreview)
-
-    testImplementation(libs.kotlin.test)
 }
 
 compose.desktop {
