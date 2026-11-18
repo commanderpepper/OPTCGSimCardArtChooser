@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,7 +45,8 @@ fun HomeScreen(
     textSizeActions: TextSizeActions,
 ) {
     Column(
-        modifier = Modifier.padding(32.dp).widthIn(max = 760.dp),
+        // Scrolls so the About section stays reachable in small windows or at larger text sizes.
+        modifier = Modifier.verticalScroll(rememberScrollState()).padding(32.dp).widthIn(max = 760.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("OPTCGSim folder verified", style = MaterialTheme.typography.headlineSmall)
@@ -88,7 +91,44 @@ fun HomeScreen(
         Text("Appearance", style = MaterialTheme.typography.titleMedium)
         ThemePicker(themeMode, onThemeModeChange)
         TextSizePicker(textScale, textSizeActions)
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        About()
     }
+}
+
+/** What the app does, where its data comes from, how to undo changes, and the fan-app disclaimer. */
+@Composable
+private fun About() {
+    Text("About", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "OPTCGSim Card Art Chooser lets you pick which art OPTCGSim shows for each card: an alternate " +
+            "art or an image of your own. It works by replacing card images in your OPTCGSim folder.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text(
+        "Card details and alternate art come from OPTCGAPI (optcgapi.com).",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text(
+        "The sim's original image is backed up before a card is changed. To put it back, choose " +
+            "\"Sim original\" on the card's page, or use \"Restore originals\" in Browse cards.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text(
+        "OPTCGSim Card Art Chooser is an unofficial fan-made app and is not affiliated with, sponsored by, " +
+            "or endorsed by Bandai, Eiichirō Oda, Shueisha, or Toei Animation. " +
+            "One Piece and all related content are © Eiichirō Oda/Shueisha, Toei Animation.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+        "It is also an independent project and is not affiliated with, sponsored by, or endorsed by " +
+            "the makers of OPTCGSim or OPTCGAPI.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** "Text size  [A−] 110% [A+]  Reset", limited to [TextScale.MIN]–[TextScale.MAX]. */
