@@ -1,0 +1,106 @@
+# Builds the installers and attaches them to a draft GitHub Release.
+#   Release:   git tag v1.2.3 && git push origin v1.2.3   → review the draft, then publish it.
+#   Test run:  Actions tab → Release → Run workflow        → installers as run artifacts, no release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            task: packageMsi
+            dir: msi
+            suffix: ""
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            task: packageDmg
+            dir: dmg
+            suffix: "-arm64"
+          - name: macOS (Intel)
+            os: macos-15-intel
+            task: packageDmg
+            dir: dmg
+            suffix: "-x64"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME must look like v1.2.3"; exit 1
+            fi
+            major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} build=${BASH_REMATCH[3]}
+            if (( major < 1 || major > 255 || minor > 255 || build > 65535 )); then
+              echo "::error::$version is outside the installer limits (1-255.0-255.0-65535)"; exit 1
+            fi
+          else
+            version="1.0.0"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Test and package
+        run: ./gradlew check :desktopApp:${{ matrix.task }} -PappVersion=${{ steps.version.outputs.version }}
+
+      # The two Mac builds produce the same file name, so tag each with its architecture.
+      - name: Collect installer
+        run: |
+          mkdir dist
+          for f in desktopApp/build/compose/binaries/main/${{ matrix.dir }}/*; do
+            name=$(basename "$f")
+            cp "$f" "dist/${name%.*}${{ matrix.suffix }}.${name##*.}"
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --draft

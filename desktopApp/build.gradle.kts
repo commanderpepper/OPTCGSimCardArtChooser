@@ -26,7 +26,9 @@ compose.desktop {
             // run packageDistributionForCurrentOS on Windows for the .msi and on a Mac for the .dmg.
             targetFormats(TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OPTCGSimCardArtChooser"
-            packageVersion = "1.0.0"
+            // The release workflow passes the tag's version (v1.2.3 → -PappVersion=1.2.3). MSI limits:
+            // MAJOR.MINOR.BUILD with MAJOR and MINOR ≤ 255, BUILD ≤ 65535; the DMG needs MAJOR ≥ 1.
+            packageVersion = providers.gradleProperty("appVersion").getOrElse("1.0.0")
             description = "Choose which card art OPTCGSim displays"
             vendor = "commanderpepper"
 
