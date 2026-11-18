@@ -140,6 +140,17 @@ class OptcgApiCatalogBuilderTest {
     }
 
     @Test
+    fun handVerifiedCorrectionsFixMisspelledNames() {
+        val rows = listOf(
+            ApiCardRow(cardSetId = "OP16-065", cardImageId = "OP16-065", cardName = "Sakazuk", cardType = "Character", setId = "OP-16"),
+            ApiCardRow(cardSetId = "OP16-065", cardImageId = "OP16-065_p1", cardName = "Sakazuk (Parallel)", cardType = "Character", setId = "OP-16"),
+        )
+        val card = OptcgApiCatalogBuilder().build(emptyList(), emptyList(), rows, "t").catalog.cards.single()
+        assertEquals("Sakazuki", card.name)
+        assertEquals(listOf(listOf(), listOf("Parallel")), card.variants.map { it.tags })
+    }
+
+    @Test
     fun setNameCorrectionsFixCombinedAndUnnamedSets() {
         // The real API: EB04 only exists inside "OP14-EB04", and ST29 has no deck entry.
         val sets = listOf(ApiSet(setId = "OP14-EB04", setName = "The Azure Sea's Seven"))

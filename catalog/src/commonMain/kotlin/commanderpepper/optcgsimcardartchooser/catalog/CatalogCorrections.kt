@@ -10,9 +10,14 @@ import commanderpepper.optcgsimcardartchooser.catalog.model.CardSet
 class CatalogCorrections(
     private val traits: Map<String, List<String>> = TRAIT_CORRECTIONS,
     private val setNames: Map<String, String> = SET_NAME_CORRECTIONS,
+    private val cardNames: Map<String, String> = CARD_NAME_CORRECTIONS,
 ) {
-    fun apply(card: Card): Card =
-        traits[card.id]?.let { card.copy(traits = it) } ?: card
+    fun apply(card: Card): Card {
+        var result = card
+        traits[card.id]?.let { result = result.copy(traits = it) }
+        cardNames[card.id]?.let { result = result.copy(name = it) }
+        return result
+    }
 
     fun apply(set: CardSet): CardSet =
         setNames[set.id]?.let { set.copy(name = it) } ?: set
@@ -37,6 +42,11 @@ class CatalogCorrections(
         val SET_NAME_CORRECTIONS: Map<String, String> = mapOf(
             "EB04" to "Extra Booster: Egghead Crisis",
             "ST29" to "Starter Deck 29: Egghead",
+        )
+
+        /** Cards whose optcgapi `card_name` is misspelled. */
+        val CARD_NAME_CORRECTIONS: Map<String, String> = mapOf(
+            "OP16-065" to "Sakazuki",
         )
     }
 }
