@@ -69,6 +69,10 @@ Requires JDK 21 (Gradle downloads it if it's missing).
 | Run all tests | `./gradlew check` |
 | Build an installer for this OS | `./gradlew :desktopApp:packageDistributionForCurrentOS` |
 
+Running from Gradle starts the debug version, titled "(Debug)". It keeps its own data folder
+(`OPTCGSimCardArtChooser-Debug`) and settings, so it can't disturb an installed copy. On first launch, point it at
+a copy of your OPTCGSim folder so test runs don't change your real sim.
+
 The project has three modules: `catalog` (card data and image conversion), `shared` (the UI and app logic) and
 `desktopApp` (the entry point and installer settings).
 

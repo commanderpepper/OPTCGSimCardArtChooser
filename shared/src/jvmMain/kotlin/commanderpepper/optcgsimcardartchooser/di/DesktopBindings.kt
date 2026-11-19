@@ -3,6 +3,7 @@ package commanderpepper.optcgsimcardartchooser.di
 import commanderpepper.optcgsimcardartchooser.cards.ImagePicker
 import commanderpepper.optcgsimcardartchooser.cards.NativeImagePicker
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppDirectories
+import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppFlavor
 import commanderpepper.optcgsimcardartchooser.catalog.conversion.SetConverter
 import commanderpepper.optcgsimcardartchooser.catalog.createHttpClient
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderPicker
@@ -18,6 +19,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.ktor.client.HttpClient
+import java.util.prefs.Preferences
 
 /** Desktop (Windows/macOS) implementations of the shared interfaces. */
 @ContributesTo(AppScope::class)
@@ -26,13 +28,19 @@ interface DesktopBindings {
     @SingleIn(AppScope::class)
     fun provideSimFolderLocator(): SimFolderLocator = JvmSimFolderLocator.forCurrentHost()
 
+    /** Debug runs keep their own sim folder, theme and text size. */
     @Provides
     @SingleIn(AppScope::class)
-    fun provideSimFolderStore(): SimFolderStore = PreferencesSimFolderStore()
+    fun providePreferences(): Preferences =
+        Preferences.userRoot().node("commanderpepper/optcgsimcardartchooser" + AppFlavor.suffix.lowercase())
 
     @Provides
     @SingleIn(AppScope::class)
-    fun provideThemeStore(): ThemeStore = PreferencesThemeStore()
+    fun provideSimFolderStore(prefs: Preferences): SimFolderStore = PreferencesSimFolderStore(prefs)
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideThemeStore(prefs: Preferences): ThemeStore = PreferencesThemeStore(prefs)
 
     @Provides
     @SingleIn(AppScope::class)

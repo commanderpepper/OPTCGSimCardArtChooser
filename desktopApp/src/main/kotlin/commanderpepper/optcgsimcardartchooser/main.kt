@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import commanderpepper.optcgsimcardartchooser.catalog.conversion.AppFlavor
 import dev.zacsweers.metro.createGraph
 import dev.zacsweers.metrox.viewmodel.LocalMetroViewModelFactory
 import org.jetbrains.skia.Image
@@ -19,7 +20,7 @@ fun main() {
     application {
         Window(
             onCloseRequest = ::exitApplication,
-            title = "OPTCGSim Card Art Chooser",
+            title = "OPTCGSim Card Art Chooser" + if (AppFlavor.isDebug) " (Debug)" else "",
             icon = icon,
             state = rememberWindowState(width = 960.dp, height = 720.dp),
         ) {

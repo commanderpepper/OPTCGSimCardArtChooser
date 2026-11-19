@@ -24,7 +24,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import commanderpepper.optcgsimcardartchooser.simfolder.FolderCheck
 import commanderpepper.optcgsimcardartchooser.theme.TextScale
@@ -98,7 +104,9 @@ fun HomeScreen(
     }
 }
 
-/** What the app does, where its data comes from, how to undo changes, and the fan-app disclaimer. */
+private const val GITHUB_URL = "https://github.com/commanderpepper/OPTCGSimCardArtChooser"
+
+/** What the app does, where its data comes from, how to undo changes, who made it, and the fan-app disclaimer. */
 @Composable
 private fun About() {
     Text("About", style = MaterialTheme.typography.titleMedium)
@@ -114,6 +122,18 @@ private fun About() {
     Text(
         "The sim's original image is backed up before a card is changed. To put it back, choose " +
             "\"Sim original\" on the card's page, or use \"Restore originals\" in Browse cards.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text(
+        buildAnnotatedString {
+            append("Made by CommanderPepper · ")
+            withLink(
+                LinkAnnotation.Url(
+                    GITHUB_URL,
+                    TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)),
+                ),
+            ) { append("GitHub") }
+        },
         style = MaterialTheme.typography.bodyMedium,
     )
     Text(

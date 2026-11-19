@@ -16,21 +16,22 @@ class AppDirectories(val data: Path, val cache: Path) {
     fun convertedSet(setId: String): Path = converted.resolve(setId)
 
     companion object {
-        private const val APP = "OPTCGSimCardArtChooser"
+        const val APP = "OPTCGSimCardArtChooser"
 
-        fun forCurrentHost(): AppDirectories {
+        /** [app] gets [AppFlavor.suffix], so the debug version uses its own folders. */
+        fun forCurrentHost(app: String = APP + AppFlavor.suffix): AppDirectories {
             val os = System.getProperty("os.name").orEmpty().lowercase()
             val home = Path(System.getProperty("user.home"))
             return when {
                 os.startsWith("windows") -> {
                     val local = System.getenv("LOCALAPPDATA")?.let { Path(it) } ?: home.resolve("AppData/Local")
-                    local.resolve(APP).let { AppDirectories(data = it, cache = it) }
+                    local.resolve(app).let { AppDirectories(data = it, cache = it) }
                 }
                 os.startsWith("mac") -> AppDirectories(
-                    data = home.resolve("Library/Application Support/$APP"),
-                    cache = home.resolve("Library/Caches/$APP"),
+                    data = home.resolve("Library/Application Support/$app"),
+                    cache = home.resolve("Library/Caches/$app"),
                 )
-                else -> AppDirectories(data = home.resolve(".local/share/$APP"), cache = home.resolve(".cache/$APP"))
+                else -> AppDirectories(data = home.resolve(".local/share/$app"), cache = home.resolve(".cache/$app"))
             }
         }
     }

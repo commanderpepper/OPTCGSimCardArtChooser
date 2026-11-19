@@ -17,6 +17,12 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
 }
 
+// Runs from Gradle (run, hotRun) are the debug version: separate data, settings and window title.
+// Installers start the app without this, so anything installed is the release version.
+tasks.withType<JavaExec>().configureEach {
+    systemProperty("optcg.flavor", "debug")
+}
+
 compose.desktop {
     application {
         mainClass = "commanderpepper.optcgsimcardartchooser.MainKt"
